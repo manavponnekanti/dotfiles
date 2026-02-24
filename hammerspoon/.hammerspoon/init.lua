@@ -26,12 +26,12 @@ caffeinateWatcher:start()
 local appBindings = {
     ["\\"] = "com.apple.Passwords",
     a = "com.googlecode.iterm2",
-    b = "com.apple.Safari",
+    b = "net.imput.helium",
     c = "com.apple.iCal",
     d = "com.hnc.Discord",
     e = "com.apple.FaceTime",
     f = "com.apple.finder",
-    g = "com.anthropic.claudefordesktop",
+    g = "com.openai.chat",
     i = "com.apple.MobileSMS",
     m = "com.apple.mail",
     n = "net.shinyfrog.bear",
@@ -140,7 +140,8 @@ hyper:bind({}, "l", function() moveWindow("right") end)
 
 hyper:bind({}, ";", function()
     for _, win in ipairs(hs.window.allWindows()) do
-        win:application():hide()
+        local sf = win:screen():frame()
+        win:setFrame(sf)
     end
 end)
 
@@ -151,17 +152,6 @@ hyper:bind({}, "h", function()
     local center = hs.geometry.rectMidPoint(win:frame())
     hs.mouse.absolutePosition(center)
 end)
-
--- ============================================================
--- URL Routing (F19 + click → Chrome, normal → Safari)
--- ============================================================
-hs.urlevent.httpCallback = function(scheme, host, params, fullUrl)
-    if hyperActive then
-        hs.urlevent.openURLWithBundle(fullUrl, "com.google.Chrome")
-    else
-        hs.urlevent.openURLWithBundle(fullUrl, "com.apple.Safari")
-    end
-end
 
 -- ============================================================
 -- Auto-reload (ReloadConfiguration spoon)
