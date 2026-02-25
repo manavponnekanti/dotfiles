@@ -104,3 +104,8 @@ source $ZSH/oh-my-zsh.sh
 
 eval "$(zoxide init zsh)"
 export PATH="$HOME/.local/bin:$PATH"
+
+export FZF_DEFAULT_OPTS="--style full --preview 'fzf-preview.sh {}' --bind 'focus:transform-header:file --brief {}'"
+source <(fzf --zsh)
+bindkey -r '\ec'
+bindkey '^G' fzf-cd-widget

@@ -31,7 +31,7 @@ local appBindings = {
     d = "com.hnc.Discord",
     e = "com.apple.FaceTime",
     f = "com.apple.finder",
-    g = "com.openai.chat",
+    g = "com.anthropic.claudefordesktop",
     i = "com.apple.MobileSMS",
     m = "com.apple.mail",
     n = "net.shinyfrog.bear",
@@ -48,12 +48,12 @@ local appBindings = {
 }
 
 local function toggleApp(bundleID)
-    local app = hs.application.get(bundleID)
-    if app and app:isFrontmost() then
-        app:hide()
-    else
+     local app = hs.application.get(bundleID)
+     if app and app:isFrontmost() then
+         app:hide()
+     else
         hs.application.launchOrFocusByBundleID(bundleID)
-    end
+     end
 end
 
 for key, bundleID in pairs(appBindings) do
@@ -99,6 +99,8 @@ hyper:bind({}, "2", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
 -- ============================================================
 -- Window Management
 -- ============================================================
+local border = 8
+
 local sizes = { left = {0.5, 2/3}, right = {0.5, 1/3} }
 
 local function moveWindow(direction)
@@ -122,9 +124,9 @@ local function moveWindow(direction)
     end
 
     local size = sizeList[nextIdx]
-    local x = direction == "left" and sf.x or sf.x + sf.w * (1 - size)
-    local w = sf.w * size
-    win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h))
+    local x = direction == "left" and sf.x + border or sf.x + sf.w * (1 - size) + border / 2
+    local w = sf.w * size - border * 1.5
+    win:setFrame(hs.geometry.rect(x, sf.y + border, w, sf.h - border * 2))
 end
 
 hyper:bind({}, "j", function() moveWindow("left") end)
@@ -133,17 +135,10 @@ hyper:bind({}, "k", function()
     local win = hs.window.focusedWindow()
     if not win then return end
     local sf = win:screen():frame()
-    win:setFrame(sf)
+    win:setFrame(hs.geometry.rect(sf.x + border, sf.y + border, sf.w - border * 2, sf.h - border * 2))
 end)
 
 hyper:bind({}, "l", function() moveWindow("right") end)
-
-hyper:bind({}, ";", function()
-    for _, win in ipairs(hs.window.allWindows()) do
-        local sf = win:screen():frame()
-        win:setFrame(sf)
-    end
-end)
 
 hyper:bind({}, "h", function()
     local win = hs.window.focusedWindow()
