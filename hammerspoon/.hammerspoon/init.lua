@@ -23,7 +23,7 @@ caffeinateWatcher:start()
 -- ============================================================
 -- App Launcher/Switcher/Toggler
 -- ============================================================
-local appBindings = {
+local defaultBindings = {
     ["\\"] = "com.apple.Passwords",
     a = "com.googlecode.iterm2",
     b = "net.imput.helium",
@@ -47,6 +47,11 @@ local appBindings = {
     y = "com.spotify.client",
 }
 
+local overrides = hs.settings.get("appBindingOverrides") or {}
+local appBindings = {}
+for k, v in pairs(defaultBindings) do appBindings[k] = v end
+for k, v in pairs(overrides) do appBindings[k] = v end
+
 local function toggleApp(bundleID)
      local app = hs.application.get(bundleID)
      if app and app:isFrontmost() then
@@ -56,9 +61,33 @@ local function toggleApp(bundleID)
      end
 end
 
-for key, bundleID in pairs(appBindings) do
-    hyper:bind({}, key, function() toggleApp(bundleID) end)
+local assignableKeys = {"a","b","c","d","e","f","g","i","m","n","o","p",
+                        "q","r","s","t","u","v","w","x","y","z","\\"}
+
+local assignMode = false
+
+for _, key in ipairs(assignableKeys) do
+    hyper:bind({}, key, function()
+        if assignMode then
+            assignMode = false
+            local app = hs.application.frontmostApplication()
+            if not app then return end
+            local bundleID = app:bundleID()
+            local name = app:name()
+            appBindings[key] = bundleID
+            overrides[key] = bundleID
+            hs.settings.set("appBindingOverrides", overrides)
+            hs.notify.show("Hammerspoon", "", "F19+" .. key .. " → " .. name)
+        elseif appBindings[key] then
+            toggleApp(appBindings[key])
+        end
+    end)
 end
+
+hyper:bind({}, "`", function()
+    assignMode = not assignMode
+    hs.notify.show("Hammerspoon", "", assignMode and "Assign mode: press a key" or "Assign mode off")
+end)
 
 -- ============================================================
 -- Bluetooth Audio Toggle
