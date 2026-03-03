@@ -5,11 +5,9 @@ hs.window.animationDuration = 0
 -- ============================================================
 local hyper = hs.hotkey.modal.new()
 
-local hyperActive = false
-
 hs.hotkey.bind({}, "f19",
-    function() hyperActive = true;  hyper:enter() end,
-    function() hyperActive = false; hyper:exit()  end
+    function() hyper:enter() end,
+    function() hyper:exit()  end
 )
 
 local caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
@@ -62,7 +60,7 @@ local function toggleApp(bundleID)
 end
 
 local assignableKeys = {"a","b","c","d","e","f","g","i","m","n","o","p",
-                        "q","r","s","t","u","v","w","x","y","z","\\"}
+                        "q","r","s","t","v","w","x","y","z","\\"}
 
 local assignMode = false
 
@@ -77,7 +75,7 @@ for _, key in ipairs(assignableKeys) do
             appBindings[key] = bundleID
             overrides[key] = bundleID
             hs.settings.set("appBindingOverrides", overrides)
-            hs.notify.show("Hammerspoon", "", "F19+" .. key .. " → " .. name)
+            hs.alert.show("F19+" .. key .. " → " .. name)
         elseif appBindings[key] then
             toggleApp(appBindings[key])
         end
@@ -86,7 +84,7 @@ end
 
 hyper:bind({}, "`", function()
     assignMode = not assignMode
-    hs.notify.show("Hammerspoon", "", assignMode and "Assign mode: press a key" or "Assign mode off")
+    hs.alert.show(assignMode and "Assign mode: press a key" or "Assign mode off")
 end)
 
 -- ============================================================
@@ -97,19 +95,19 @@ local btInFlight = {}
 
 local function toggleBluetooth(mac, name)
     if btInFlight[mac] then
-        hs.notify.show("Hammerspoon", "", name .. " already in progress")
+        hs.alert.show(name .. " already in progress")
         return
     end
     local connected = hs.execute(blueutil .. " --is-connected " .. mac):gsub("%s+", "") == "1"
     local action = connected and "--disconnect" or "--connect"
-    hs.notify.show("Hammerspoon", "", name .. (connected and " disconnecting..." or " connecting..."))
+    hs.alert.show(name .. (connected and " disconnecting..." or " connecting..."))
     btInFlight[mac] = true
     local timer
     local task = hs.task.new(blueutil, function(exitCode)
         btInFlight[mac] = nil
         if not timer then return end
         timer:stop(); timer = nil
-        hs.notify.show("Hammerspoon", "", exitCode == 0
+        hs.alert.show(exitCode == 0
             and (name .. (connected and " disconnected" or " connected"))
             or (name .. " error"))
     end, {action, mac})
@@ -117,7 +115,7 @@ local function toggleBluetooth(mac, name)
     timer = hs.timer.doAfter(10, function()
         btInFlight[mac] = nil
         task:terminate()
-        hs.notify.show("Hammerspoon", "", name .. " not found")
+        hs.alert.show(name .. " not found")
         timer = nil
     end)
 end
@@ -128,9 +126,21 @@ hyper:bind({}, "2", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
 -- ============================================================
 -- Window Management
 -- ============================================================
-local border = 8
+local pinMode = false
+local gutterWidth = 400
 
 local sizes = { left = {0.5, 2/3}, right = {0.5, 1/3} }
+
+local function maximizeAllOnScreen()
+    local screen = hs.screen.mainScreen()
+    local sf = screen:frame()
+    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
+    for _, win in ipairs(hs.window.allWindows()) do
+        if win:screen() == screen and win:isVisible() and win:isStandard() then
+            win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
+        end
+    end
+end
 
 local function moveWindow(direction)
     local win = hs.window.focusedWindow()
@@ -138,8 +148,9 @@ local function moveWindow(direction)
 
     local f = win:frame()
     local sf = win:screen():frame()
-    local curX = (f.x - sf.x) / sf.w
-    local curW = f.w / sf.w
+    local availW = pinMode and (sf.w - gutterWidth) or sf.w
+    local curX = (f.x - sf.x) / availW
+    local curW = f.w / availW
     local tol = 0.05
 
     local sizeList = sizes[direction]
@@ -153,9 +164,17 @@ local function moveWindow(direction)
     end
 
     local size = sizeList[nextIdx]
-    local x = direction == "left" and sf.x + border or sf.x + sf.w * (1 - size) + border / 2
-    local w = sf.w * size - border * 1.5
-    win:setFrame(hs.geometry.rect(x, sf.y + border, w, sf.h - border * 2))
+    local x = direction == "left" and sf.x or (sf.x + availW * (1 - size))
+    local w = availW * size
+    win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h))
+
+    -- if the app enforced a minimum width, re-anchor flush to the right edge
+    if direction == "right" then
+        local actual = win:frame()
+        if actual.w > w + 1 then
+            win:setFrame(hs.geometry.rect(sf.x + availW - actual.w, sf.y, actual.w, sf.h))
+        end
+    end
 end
 
 hyper:bind({}, "j", function() moveWindow("left") end)
@@ -164,10 +183,19 @@ hyper:bind({}, "k", function()
     local win = hs.window.focusedWindow()
     if not win then return end
     local sf = win:screen():frame()
-    win:setFrame(hs.geometry.rect(sf.x + border, sf.y + border, sf.w - border * 2, sf.h - border * 2))
+    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
+    win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
 end)
 
 hyper:bind({}, "l", function() moveWindow("right") end)
+
+hyper:bind({}, ";", function() maximizeAllOnScreen() end)
+
+hyper:bind({}, "u", function()
+    pinMode = not pinMode
+    hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
+    maximizeAllOnScreen()
+end)
 
 hyper:bind({}, "h", function()
     local win = hs.window.focusedWindow()
@@ -178,11 +206,31 @@ hyper:bind({}, "h", function()
 end)
 
 -- ============================================================
+-- TextEdit: Shift+Enter → [ ]
+-- ============================================================
+local textEditShiftEnter = hs.hotkey.new({"shift"}, "return", function()
+    hs.eventtap.keyStrokes("\n[ ] ")
+end)
+
+local function handleAppChange(appName, eventType, app)
+    if eventType == hs.application.watcher.activated then
+        if app and app:bundleID() == "com.apple.TextEdit" then
+            textEditShiftEnter:enable()
+        else
+            textEditShiftEnter:disable()
+        end
+    end
+end
+
+local textEditWatcher = hs.application.watcher.new(handleAppChange)
+textEditWatcher:start()
+
+-- ============================================================
 -- Auto-reload (ReloadConfiguration spoon)
 -- ============================================================
 hs.loadSpoon("ReloadConfiguration")
 spoon.ReloadConfiguration.watch_paths = {hs.configdir}
 spoon.ReloadConfiguration:start()
 
-hs.notify.show("Hammerspoon", "", "Hammerspoon config loaded")
+hs.alert.show("Hammerspoon config loaded")
 
