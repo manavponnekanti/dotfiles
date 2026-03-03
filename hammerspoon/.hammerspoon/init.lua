@@ -1,5 +1,14 @@
 hs.window.animationDuration = 0
 
+hs.alert.defaultStyle.fillColor   = { white = 0, alpha = 0.5 }
+hs.alert.defaultStyle.strokeColor = { white = 0, alpha = 0 }
+hs.alert.defaultStyle.strokeWidth = 0
+hs.alert.defaultStyle.textSize    = 14
+hs.alert.defaultStyle.radius      = 8
+hs.alert.defaultStyle.atScreenEdge = 1
+hs.alert.defaultStyle.fadeInDuration  = 0.1
+hs.alert.defaultStyle.fadeOutDuration = 0.1
+
 -- ============================================================
 -- Hyper Modal (F19 as modifier)
 -- ============================================================
