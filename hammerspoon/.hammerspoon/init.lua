@@ -1,13 +1,15 @@
 hs.window.animationDuration = 0
 
-hs.alert.defaultStyle.fillColor   = { white = 0, alpha = 0.5 }
-hs.alert.defaultStyle.strokeColor = { white = 0, alpha = 0 }
 hs.alert.defaultStyle.strokeWidth = 0
-hs.alert.defaultStyle.textSize    = 14
-hs.alert.defaultStyle.radius      = 8
-hs.alert.defaultStyle.atScreenEdge = 1
-hs.alert.defaultStyle.fadeInDuration  = 0.1
-hs.alert.defaultStyle.fadeOutDuration = 0.1
+hs.alert.defaultStyle.fillColor = { white = 0, alpha = 0.45 }
+hs.alert.defaultStyle.strokeColor = { white = 1, alpha = 0 }
+hs.alert.defaultStyle.textColor = { white = 1, alpha = 0.9 }
+hs.alert.defaultStyle.textSize = 18
+hs.alert.defaultStyle.radius = 12
+hs.alert.defaultStyle.padding = 10
+hs.alert.defaultStyle.atScreenEdge = 2
+hs.alert.defaultStyle.fadeInDuration = 0.08
+hs.alert.defaultStyle.fadeOutDuration = 0.12
 
 -- ============================================================
 -- Hyper Modal (F19 as modifier)
@@ -100,37 +102,84 @@ end)
 -- Bluetooth Audio Toggle
 -- ============================================================
 local blueutil = "/opt/homebrew/bin/blueutil"
-local btInFlight = {}
+local btBusy = false
 
 local function toggleBluetooth(mac, name)
-    if btInFlight[mac] then
-        hs.alert.show(name .. " already in progress")
-        return
-    end
+    if btBusy then return end
     local connected = hs.execute(blueutil .. " --is-connected " .. mac):gsub("%s+", "") == "1"
     local action = connected and "--disconnect" or "--connect"
     hs.alert.show(name .. (connected and " disconnecting..." or " connecting..."))
-    btInFlight[mac] = true
-    local timer
+    btBusy = true
+    local timeout
     local task = hs.task.new(blueutil, function(exitCode)
-        btInFlight[mac] = nil
-        if not timer then return end
-        timer:stop(); timer = nil
+        btBusy = false
+        if not timeout then return end
+        timeout:stop(); timeout = nil
         hs.alert.show(exitCode == 0
             and (name .. (connected and " disconnected" or " connected"))
             or (name .. " error"))
     end, {action, mac})
     task:start()
-    timer = hs.timer.doAfter(10, function()
-        btInFlight[mac] = nil
+    timeout = hs.timer.doAfter(10, function()
+        btBusy = false
         task:terminate()
         hs.alert.show(name .. " not found")
-        timer = nil
+        timeout = nil
     end)
 end
 
-hyper:bind({}, "1", function() toggleBluetooth("a0-a3-09-16-cc-1f", "AirPods") end)
-hyper:bind({}, "2", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
+hyper:bind({}, "1", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
+
+-- ============================================================
+-- 25-Minute Countdown Timer (F19 + 2)
+-- ============================================================
+local countdownCanvas = nil
+local countdownTimer = nil
+local countdownRemaining = 0
+
+local function stopCountdown()
+    if countdownTimer then countdownTimer:stop(); countdownTimer = nil end
+    if countdownCanvas then countdownCanvas:delete(); countdownCanvas = nil end
+end
+
+local function updateCountdown()
+    countdownRemaining = countdownRemaining - 1
+    if countdownRemaining <= 0 then
+        stopCountdown()
+        hs.alert.show("Block finished! 🧱🎉")
+        return
+    end
+    if countdownCanvas then
+        countdownCanvas:elementAttribute(2, "text",
+            string.format("%d:%02d", countdownRemaining // 60, countdownRemaining % 60))
+    end
+end
+
+local function startCountdown()
+    local screen = hs.screen.mainScreen()
+    local sf = screen:frame()
+    local w, h = 120, 40
+    countdownRemaining = 25 * 60
+
+    countdownCanvas = hs.canvas.new({x = sf.x + sf.w - w - 10, y = sf.y + 10, w = w, h = h})
+    countdownCanvas:level(hs.canvas.windowLevels.floating)
+    countdownCanvas:appendElements(
+        { type = "rectangle", fillColor = {white = 0, alpha = 0.45}, roundedRectRadii = {xRadius = 8, yRadius = 8} },
+        { type = "text", text = "25:00", textColor = {white = 1}, textSize = 20,
+          textAlignment = "center", frame = {x = 0, y = "20%", w = "100%", h = "80%"} }
+    )
+    countdownCanvas:show()
+    countdownTimer = hs.timer.doEvery(1, updateCountdown)
+end
+
+hyper:bind({}, "2", function()
+    if countdownTimer then
+        stopCountdown()
+        hs.alert.show("Womp Womp: timer cancelled")
+    else
+        startCountdown()
+    end
+end)
 
 -- ============================================================
 -- Window Management
@@ -200,10 +249,29 @@ hyper:bind({}, "l", function() moveWindow("right") end)
 
 hyper:bind({}, ";", function() maximizeAllOnScreen() end)
 
+local function positionGutterWindows()
+    local screen = hs.screen.mainScreen()
+    local sf = screen:frame()
+    local gutterX = sf.x + sf.w - gutterWidth
+
+    local remindersApp = hs.application.get("com.apple.reminders")
+    local remindersWin = remindersApp and remindersApp:mainWindow()
+    if remindersWin then
+        remindersWin:setFrame(hs.geometry.rect(gutterX, sf.y + sf.h / 2, gutterWidth, sf.h / 2))
+    end
+
+    local ftApp = hs.application.get("com.apple.FaceTime")
+    local ftWin = ftApp and ftApp:mainWindow()
+    if ftWin then
+        ftWin:setTopLeft(hs.geometry.point(gutterX, sf.y))
+    end
+end
+
 hyper:bind({}, "u", function()
     pinMode = not pinMode
     hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
     maximizeAllOnScreen()
+    if pinMode then positionGutterWindows() end
 end)
 
 hyper:bind({}, "h", function()
@@ -215,31 +283,8 @@ hyper:bind({}, "h", function()
 end)
 
 -- ============================================================
--- TextEdit: Shift+Enter → [ ]
+-- Reload config (Cmd+Shift+R)
 -- ============================================================
-local textEditShiftEnter = hs.hotkey.new({"shift"}, "return", function()
-    hs.eventtap.keyStrokes("\n[ ] ")
-end)
+hs.hotkey.bind({"cmd", "shift"}, "r", hs.reload)
 
-local function handleAppChange(appName, eventType, app)
-    if eventType == hs.application.watcher.activated then
-        if app and app:bundleID() == "com.apple.TextEdit" then
-            textEditShiftEnter:enable()
-        else
-            textEditShiftEnter:disable()
-        end
-    end
-end
-
-local textEditWatcher = hs.application.watcher.new(handleAppChange)
-textEditWatcher:start()
-
--- ============================================================
--- Auto-reload (ReloadConfiguration spoon)
--- ============================================================
-hs.loadSpoon("ReloadConfiguration")
-spoon.ReloadConfiguration.watch_paths = {hs.configdir}
-spoon.ReloadConfiguration:start()
-
-hs.alert.show("Hammerspoon config loaded")
-
+hs.alert.show("Config loaded")

@@ -109,3 +109,4 @@ export FZF_DEFAULT_OPTS="--style full --preview 'fzf-preview.sh {}' --bind 'focu
 source <(fzf --zsh)
 bindkey -r '\ec'
 bindkey '^G' fzf-cd-widget
+export PATH="/Library/TeX/texbin:$PATH"
