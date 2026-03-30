@@ -74,8 +74,13 @@ local appBindings = {}
 for k, v in pairs(defaultBindings) do appBindings[k] = v end
 for k, v in pairs(overrides) do appBindings[k] = v end
 
-local function focusApp(bundleID)
-    hs.application.launchOrFocusByBundleID(bundleID)
+local function toggleApp(bundleID)
+     local app = hs.application.get(bundleID)
+     if app and app:isFrontmost() then
+         app:hide()
+     else
+        hs.application.launchOrFocusByBundleID(bundleID)
+     end
 end
 
 local assignableKeys = {"a","b","c","d","e","f","g","i","m","n","o","p",
@@ -96,7 +101,7 @@ for _, key in ipairs(assignableKeys) do
             hs.settings.set("appBindingOverrides", overrides)
             hs.alert.show("F19+" .. key .. " → " .. name)
         elseif appBindings[key] then
-            focusApp(appBindings[key])
+            toggleApp(appBindings[key])
         end
     end)
 end
@@ -192,129 +197,99 @@ end)
 -- ============================================================
 -- Window Management
 -- ============================================================
-local tileMargin = 8
-local tileGap = 8
-local tileWidths = { left = {0.5, 2/3}, right = {0.5, 1/3} }
-local tileRepeatTimeout = 1.2
-local lastTileAction = {
-    direction = nil,
-    index = 0,
-    windowId = nil,
-    timer = nil,
-}
+local pinMode = false
+local gutterWidth = 400
 
-local function focusedWindow()
-    local win = hs.window.focusedWindow()
-    if win and win:isStandard() then
-        return win
-    end
-end
+local sizes = { left = {0.5, 2/3}, right = {0.5, 1/3} }
 
-local function insetFrame(frame)
-    return hs.geometry.rect(
-        frame.x + tileMargin,
-        frame.y + tileMargin,
-        math.max(frame.w - (tileMargin * 2), 1),
-        math.max(frame.h - (tileMargin * 2), 1)
-    )
-end
-
-local function tiledFrame(screenFrame, direction, size)
-    local innerOffset = tileGap / 2
-    local x = screenFrame.x + tileMargin
-
-    if direction == "right" then
-        x = screenFrame.x + screenFrame.w * (1 - size) + innerOffset
-    end
-
-    return hs.geometry.rect(
-        x,
-        screenFrame.y + tileMargin,
-        math.max(screenFrame.w * size - tileMargin - innerOffset, 1),
-        math.max(screenFrame.h - (tileMargin * 2), 1)
-    )
-end
-
-local function tileFocusedWindow(frame, anchorRight)
-    local win = focusedWindow()
-    if not win then return end
-
-    win:setFrame(frame)
-
-    if anchorRight then
-        local actual = win:frame()
-        if actual.w > frame.w + 1 then
-            win:setFrame(hs.geometry.rect(
-                frame.x + frame.w - actual.w,
-                frame.y,
-                actual.w,
-                frame.h
-            ))
+local function maximizeAllOnScreen()
+    local screen = hs.screen.mainScreen()
+    local sf = screen:frame()
+    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
+    for _, win in ipairs(hs.window.allWindows()) do
+        if win:screen() == screen and win:isVisible() and win:isStandard() then
+            win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
         end
     end
 end
 
-local function clearTileRepeat()
-    if lastTileAction.timer then
-        lastTileAction.timer:stop()
-    end
-
-    lastTileAction.direction = nil
-    lastTileAction.index = 0
-    lastTileAction.windowId = nil
-    lastTileAction.timer = nil
-end
-
-local function refreshTileRepeat(direction, index, windowId)
-    if lastTileAction.timer then
-        lastTileAction.timer:stop()
-    end
-
-    lastTileAction.direction = direction
-    lastTileAction.index = index
-    lastTileAction.windowId = windowId
-    lastTileAction.timer = hs.timer.doAfter(tileRepeatTimeout, clearTileRepeat)
-end
-
 local function moveWindow(direction)
-    local win = focusedWindow()
+    local win = hs.window.focusedWindow()
     if not win then return end
 
-    local screen = win:screen()
-    local sf = screen:frame()
-    local sizeList = tileWidths[direction]
-    local windowId = win:id()
-    local nextIdx = 1
+    local f = win:frame()
+    local sf = win:screen():frame()
+    local availW = pinMode and (sf.w - gutterWidth) or sf.w
+    local curX = (f.x - sf.x) / availW
+    local curW = f.w / availW
+    local tol = 0.05
 
-    if windowId
-        and lastTileAction.direction == direction
-        and lastTileAction.windowId == windowId then
-        nextIdx = (lastTileAction.index % #sizeList) + 1
+    local sizeList = sizes[direction]
+    local nextIdx = 1
+    for i, size in ipairs(sizeList) do
+        local expX = direction == "left" and 0 or (1 - size)
+        if math.abs(curW - size) < tol and math.abs(curX - expX) < tol then
+            nextIdx = (i % #sizeList) + 1
+            break
+        end
     end
 
-    tileFocusedWindow(tiledFrame(sf, direction, sizeList[nextIdx]), direction == "right")
-    refreshTileRepeat(direction, nextIdx, windowId)
-end
+    local size = sizeList[nextIdx]
+    local x = direction == "left" and sf.x or (sf.x + availW * (1 - size))
+    local w = availW * size
+    win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h))
 
-local function maximizeWindow()
-    local win = focusedWindow()
-    if not win then return end
-
-    clearTileRepeat()
-    tileFocusedWindow(insetFrame(win:screen():frame()), false)
+    -- if the app enforced a minimum width, re-anchor flush to the right edge
+    if direction == "right" then
+        local actual = win:frame()
+        if actual.w > w + 1 then
+            win:setFrame(hs.geometry.rect(sf.x + availW - actual.w, sf.y, actual.w, sf.h))
+        end
+    end
 end
 
 hyper:bind({}, "j", function() moveWindow("left") end)
 
-hyper:bind({}, "k", maximizeWindow)
+hyper:bind({}, "k", function()
+    local win = hs.window.focusedWindow()
+    if not win then return end
+    local sf = win:screen():frame()
+    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
+    win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
+end)
 
 hyper:bind({}, "l", function() moveWindow("right") end)
+
+hyper:bind({}, ";", function() maximizeAllOnScreen() end)
+
+local function positionGutterWindows()
+    local screen = hs.screen.mainScreen()
+    local sf = screen:frame()
+    local gutterX = sf.x + sf.w - gutterWidth
+
+    local remindersApp = hs.application.get("com.apple.reminders")
+    local remindersWin = remindersApp and remindersApp:mainWindow()
+    if remindersWin then
+        remindersWin:setFrame(hs.geometry.rect(gutterX, sf.y + sf.h / 2, gutterWidth, sf.h / 2))
+    end
+
+    local ftApp = hs.application.get("com.apple.FaceTime")
+    local ftWin = ftApp and ftApp:mainWindow()
+    if ftWin then
+        ftWin:setTopLeft(hs.geometry.point(gutterX, sf.y))
+    end
+end
+
+hyper:bind({}, "u", function()
+    pinMode = not pinMode
+    hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
+    maximizeAllOnScreen()
+    if pinMode then positionGutterWindows() end
+end)
 
 hyper:bind({}, "h", function()
     local win = hs.window.focusedWindow()
     if not win then return end
-
-    clearTileRepeat()
     win:moveToScreen(win:screen():next())
     local center = hs.geometry.rectMidPoint(win:frame())
     hs.mouse.absolutePosition(center)
