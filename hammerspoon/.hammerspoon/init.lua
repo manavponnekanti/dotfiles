@@ -11,6 +11,19 @@ hs.alert.defaultStyle.atScreenEdge = 2
 hs.alert.defaultStyle.fadeInDuration = 0.08
 hs.alert.defaultStyle.fadeOutDuration = 0.12
 
+local originalAlertShow = hs.alert.show
+local currentAlertId = nil
+
+hs.alert.show = function(...)
+    if currentAlertId then
+        hs.alert.closeSpecific(currentAlertId, 0)
+        currentAlertId = nil
+    end
+
+    currentAlertId = originalAlertShow(...)
+    return currentAlertId
+end
+
 -- ============================================================
 -- Hyper Modal (F19 as modifier)
 -- ============================================================
