@@ -4,9 +4,9 @@ hs.alert.defaultStyle.strokeWidth = 0
 hs.alert.defaultStyle.fillColor = { white = 0, alpha = 0.45 }
 hs.alert.defaultStyle.strokeColor = { white = 1, alpha = 0 }
 hs.alert.defaultStyle.textColor = { white = 1, alpha = 0.9 }
-hs.alert.defaultStyle.textSize = 18
-hs.alert.defaultStyle.radius = 12
-hs.alert.defaultStyle.padding = 10
+hs.alert.defaultStyle.textSize = 20
+hs.alert.defaultStyle.radius = 14
+hs.alert.defaultStyle.padding = 12
 hs.alert.defaultStyle.atScreenEdge = 2
 hs.alert.defaultStyle.fadeInDuration = 0.08
 hs.alert.defaultStyle.fadeOutDuration = 0.12
@@ -31,16 +31,36 @@ local hyper = hs.hotkey.modal.new()
 
 hs.hotkey.bind({}, "f19",
     function() hyper:enter() end,
-    function() hyper:exit()  end
+    function() hyper:exit() end
 )
 
 local caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
     if event == hs.caffeinate.watcher.systemDidWake
-       or event == hs.caffeinate.watcher.screensDidUnlock then
+        or event == hs.caffeinate.watcher.screensDidUnlock then
         hyper:exit()
     end
 end)
 caffeinateWatcher:start()
+
+local function centerMouseOnWindow(win)
+    if not win or not win:isStandard() or not win:isVisible() then return end
+
+    local frame = win:frame()
+    if not frame or frame.w <= 0 or frame.h <= 0 then return end
+
+    hs.mouse.absolutePosition(hs.geometry.rectMidPoint(frame))
+end
+
+local focusWarpFilter = hs.window.filter.default
+focusWarpFilter:subscribe(hs.window.filter.windowFocused, function(win)
+    local frame = win and win:frame()
+    local mousePos = hs.mouse.absolutePosition()
+    if frame and mousePos.x >= frame.x and mousePos.x <= frame.x + frame.w
+        and mousePos.y >= frame.y and mousePos.y <= frame.y + frame.h then
+        return
+    end
+    centerMouseOnWindow(win)
+end)
 
 -- ============================================================
 -- App Launcher/Switcher/Toggler
@@ -75,16 +95,16 @@ for k, v in pairs(defaultBindings) do appBindings[k] = v end
 for k, v in pairs(overrides) do appBindings[k] = v end
 
 local function toggleApp(bundleID)
-     local app = hs.application.get(bundleID)
-     if app and app:isFrontmost() then
-         app:hide()
-     else
+    local app = hs.application.get(bundleID)
+    if app and app:isFrontmost() then
+        app:hide()
+    else
         hs.application.launchOrFocusByBundleID(bundleID)
-     end
+    end
 end
 
-local assignableKeys = {"a","b","c","d","e","f","g","i","m","n","o","p",
-                        "q","r","s","t","v","w","x","y","z","\\"}
+local assignableKeys = { "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
+    "q", "r", "s", "t", "v", "w", "x", "y", "z", "\\" }
 
 local assignMode = false
 
@@ -114,31 +134,59 @@ end)
 -- ============================================================
 -- Bluetooth Audio Toggle
 -- ============================================================
-local blueutil = "/opt/homebrew/bin/blueutil"
+local bluetoothHelper = hs.configdir .. "/bluetooth-toggle.js"
 local btBusy = false
 
 local function toggleBluetooth(mac, name)
     if btBusy then return end
-    local connected = hs.execute(blueutil .. " --is-connected " .. mac):gsub("%s+", "") == "1"
-    local action = connected and "--disconnect" or "--connect"
-    hs.alert.show(name .. (connected and " disconnecting..." or " connecting..."))
     btBusy = true
-    local timeout
-    local task = hs.task.new(blueutil, function(exitCode)
+    local task = hs.task.new("/usr/bin/osascript", function(exitCode, stdOut, stdErr)
         btBusy = false
-        if not timeout then return end
-        timeout:stop(); timeout = nil
-        hs.alert.show(exitCode == 0
-            and (name .. (connected and " disconnected" or " connected"))
-            or (name .. " error"))
-    end, {action, mac})
+        if exitCode ~= 0 then
+            hs.alert.show(name .. " error")
+            if stdErr and stdErr ~= "" then
+                print(stdErr)
+            end
+            return
+        end
+
+        local ok, result = pcall(hs.json.decode, stdOut or "")
+        if not ok or type(result) ~= "table" then
+            hs.alert.show(name .. " error")
+            if stdOut and stdOut ~= "" then
+                print(stdOut)
+            end
+            return
+        end
+
+        if result.ok then
+            hs.alert.show((result.name or name) ..
+                (result.action == "disconnect" and " disconnected" or " connected"))
+            return
+        end
+
+        local message = ({
+            ["missing-address"] = "missing address",
+            ["unsupported-macos"] = "requires macOS 10.15+",
+            ["bluetooth-permission"] = "needs Bluetooth permission",
+            ["not-found"] = "not found",
+            ["toggle-failed"] = "error",
+        })[result.error] or "error"
+
+        hs.alert.show((result.name or name) .. " " .. message)
+        if result.detail then
+            print(result.detail)
+        end
+    end, { "-l", "JavaScript", bluetoothHelper, mac })
+
+    if not task then
+        btBusy = false
+        hs.alert.show(name .. " error")
+        return
+    end
+
+    hs.alert.show(name .. " toggling...")
     task:start()
-    timeout = hs.timer.doAfter(10, function()
-        btBusy = false
-        task:terminate()
-        hs.alert.show(name .. " not found")
-        timeout = nil
-    end)
 end
 
 hyper:bind({}, "1", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
@@ -151,8 +199,12 @@ local countdownTimer = nil
 local countdownRemaining = 0
 
 local function stopCountdown()
-    if countdownTimer then countdownTimer:stop(); countdownTimer = nil end
-    if countdownCanvas then countdownCanvas:delete(); countdownCanvas = nil end
+    if countdownTimer then
+        countdownTimer:stop(); countdownTimer = nil
+    end
+    if countdownCanvas then
+        countdownCanvas:delete(); countdownCanvas = nil
+    end
 end
 
 local function updateCountdown()
@@ -174,12 +226,18 @@ local function startCountdown()
     local w, h = 120, 40
     countdownRemaining = 25 * 60
 
-    countdownCanvas = hs.canvas.new({x = sf.x + sf.w - w - 10, y = sf.y + 10, w = w, h = h})
+    countdownCanvas = hs.canvas.new({ x = sf.x + sf.w - w - 10, y = sf.y + 10, w = w, h = h })
     countdownCanvas:level(hs.canvas.windowLevels.floating)
     countdownCanvas:appendElements(
-        { type = "rectangle", fillColor = {white = 0, alpha = 0.45}, roundedRectRadii = {xRadius = 8, yRadius = 8} },
-        { type = "text", text = "25:00", textColor = {white = 1}, textSize = 20,
-          textAlignment = "center", frame = {x = 0, y = "20%", w = "100%", h = "80%"} }
+        { type = "rectangle", fillColor = { white = 0, alpha = 0.45 }, roundedRectRadii = { xRadius = 8, yRadius = 8 } },
+        {
+            type = "text",
+            text = "25:00",
+            textColor = { white = 1 },
+            textSize = 20,
+            textAlignment = "center",
+            frame = { x = 0, y = "20%", w = "100%", h = "80%" }
+        }
     )
     countdownCanvas:show()
     countdownTimer = hs.timer.doEvery(1, updateCountdown)
@@ -200,16 +258,21 @@ end)
 local pinMode = false
 local gutterWidth = 400
 
-local sizes = { left = {0.5, 2/3}, right = {0.5, 1/3} }
+local sizes = { left = { 0.5, 2 / 3 }, right = { 0.5, 1 / 3 } }
 
 local function maximizeAllOnScreen()
     local screen = hs.screen.mainScreen()
     local sf = screen:frame()
     local maxW = pinMode and (sf.w - gutterWidth) or sf.w
-    for _, win in ipairs(hs.window.allWindows()) do
-        if win:screen() == screen and win:isVisible() and win:isStandard() then
+    local focused = hs.window.focusedWindow()
+    for _, win in ipairs(hs.window.visibleWindows()) do
+        if win:screen() == screen and win:isStandard() then
             win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
         end
+    end
+
+    if focused and focused:screen() == screen then
+        centerMouseOnWindow(focused)
     end
 end
 
@@ -239,13 +302,15 @@ local function moveWindow(direction)
     local w = availW * size
     win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h))
 
-    -- if the app enforced a minimum width, re-anchor flush to the right edge
+    -- If the app enforced a minimum width, re-anchor flush to the right edge.
     if direction == "right" then
         local actual = win:frame()
         if actual.w > w + 1 then
             win:setFrame(hs.geometry.rect(sf.x + availW - actual.w, sf.y, actual.w, sf.h))
         end
     end
+
+    centerMouseOnWindow(win)
 end
 
 hyper:bind({}, "j", function() moveWindow("left") end)
@@ -256,48 +321,29 @@ hyper:bind({}, "k", function()
     local sf = win:screen():frame()
     local maxW = pinMode and (sf.w - gutterWidth) or sf.w
     win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
+    centerMouseOnWindow(win)
 end)
 
 hyper:bind({}, "l", function() moveWindow("right") end)
 
 hyper:bind({}, ";", function() maximizeAllOnScreen() end)
 
-local function positionGutterWindows()
-    local screen = hs.screen.mainScreen()
-    local sf = screen:frame()
-    local gutterX = sf.x + sf.w - gutterWidth
-
-    local remindersApp = hs.application.get("com.apple.reminders")
-    local remindersWin = remindersApp and remindersApp:mainWindow()
-    if remindersWin then
-        remindersWin:setFrame(hs.geometry.rect(gutterX, sf.y + sf.h / 2, gutterWidth, sf.h / 2))
-    end
-
-    local ftApp = hs.application.get("com.apple.FaceTime")
-    local ftWin = ftApp and ftApp:mainWindow()
-    if ftWin then
-        ftWin:setTopLeft(hs.geometry.point(gutterX, sf.y))
-    end
-end
-
 hyper:bind({}, "u", function()
     pinMode = not pinMode
-    hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
+    hs.alert.show(pinMode and "Gutter ON" or "Gutter OFF")
     maximizeAllOnScreen()
-    if pinMode then positionGutterWindows() end
 end)
 
 hyper:bind({}, "h", function()
     local win = hs.window.focusedWindow()
     if not win then return end
     win:moveToScreen(win:screen():next())
-    local center = hs.geometry.rectMidPoint(win:frame())
-    hs.mouse.absolutePosition(center)
+    centerMouseOnWindow(win)
 end)
 
 -- ============================================================
--- Reload config (Cmd+Shift+R)
+-- Reload config (Cmd+Opt+Ctrl+R)
 -- ============================================================
-hs.hotkey.bind({"cmd", "shift"}, "r", hs.reload)
+hs.hotkey.bind({ "cmd", "alt", "ctrl" }, "r", hs.reload)
 
 hs.alert.show("Config loaded")
