@@ -42,57 +42,82 @@ local caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
 end)
 caffeinateWatcher:start()
 
-local function centerMouseOnWindow(win)
-    if not win or not win:isStandard() or not win:isVisible() then return end
-
-    local frame = win:frame()
-    if not frame or frame.w <= 0 or frame.h <= 0 then return end
-
-    hs.mouse.absolutePosition(hs.geometry.rectMidPoint(frame))
-end
-
-local focusWarpFilter = hs.window.filter.default
-focusWarpFilter:subscribe(hs.window.filter.windowFocused, function(win)
-    local frame = win and win:frame()
-    local mousePos = hs.mouse.absolutePosition()
-    if frame and mousePos.x >= frame.x and mousePos.x <= frame.x + frame.w
-        and mousePos.y >= frame.y and mousePos.y <= frame.y + frame.h then
-        return
-    end
-    centerMouseOnWindow(win)
-end)
-
 -- ============================================================
 -- App Launcher/Switcher/Toggler
 -- ============================================================
-local defaultBindings = {
-    ["\\"] = "com.apple.Passwords",
-    a = "com.googlecode.iterm2",
-    b = "net.imput.helium",
-    c = "com.apple.iCal",
-    d = "com.hnc.Discord",
-    e = "com.apple.FaceTime",
-    f = "com.apple.finder",
-    g = "com.anthropic.claudefordesktop",
-    i = "com.apple.MobileSMS",
-    m = "com.apple.mail",
-    n = "net.shinyfrog.bear",
-    o = "md.obsidian",
-    p = "com.apple.Preview",
-    q = "net.ankiweb.launcher",
-    r = "com.apple.reminders",
-    s = "com.apple.systempreferences",
-    t = "ru.keepcoder.Telegram",
-    v = "com.microsoft.VSCode",
-    w = "net.whatsapp.WhatsApp",
-    x = "com.microsoft.Excel",
-    y = "com.spotify.client",
-}
+local assignableKeys = { "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
+    "q", "r", "s", "t", "v", "w", "x", "y", "z", "\\" }
 
-local overrides = hs.settings.get("appBindingOverrides") or {}
-local appBindings = {}
-for k, v in pairs(defaultBindings) do appBindings[k] = v end
-for k, v in pairs(overrides) do appBindings[k] = v end
+local appBindingsPath = hs.configdir .. "/app_bindings.lua"
+
+local function serializeBindings(bindings)
+    local keys = {}
+    for key in pairs(bindings) do
+        table.insert(keys, key)
+    end
+    table.sort(keys)
+
+    local lines = { "return {" }
+    for _, key in ipairs(keys) do
+        table.insert(lines, string.format("    [%q] = %q,", key, bindings[key]))
+    end
+    table.insert(lines, "}")
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+local function saveAppBindings(bindings)
+    local file, openErr = io.open(appBindingsPath, "w")
+    if not file then
+        return false, openErr
+    end
+
+    local ok, writeErr = file:write(serializeBindings(bindings))
+    file:close()
+    if not ok then
+        return false, writeErr
+    end
+
+    return true
+end
+
+local function loadAppBindings()
+    local ok, loaded = pcall(dofile, appBindingsPath)
+    if ok and type(loaded) == "table" then
+        return loaded
+    end
+
+    if ok then
+        hs.alert.show("app_bindings.lua error")
+        print("app_bindings.lua must return a table")
+    else
+        hs.alert.show(loaded:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
+        print(loaded)
+    end
+    return {}
+end
+
+local appBindings = loadAppBindings()
+
+local function updateAppBinding(key, bundleID)
+    local previous = appBindings[key]
+    appBindings[key] = bundleID
+
+    local ok, saveErr = saveAppBindings(appBindings)
+    if ok then
+        return true
+    end
+
+    appBindings[key] = previous
+    return false, saveErr
+end
+
+local function showBindingSaveError(saveErr)
+    hs.alert.show("Binding save failed")
+    if saveErr then
+        print(saveErr)
+    end
+end
 
 local function toggleApp(bundleID)
     local app = hs.application.get(bundleID)
@@ -102,9 +127,6 @@ local function toggleApp(bundleID)
         hs.application.launchOrFocusByBundleID(bundleID)
     end
 end
-
-local assignableKeys = { "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
-    "q", "r", "s", "t", "v", "w", "x", "y", "z", "\\" }
 
 local assignMode = false
 
@@ -116,10 +138,21 @@ for _, key in ipairs(assignableKeys) do
             if not app then return end
             local bundleID = app:bundleID()
             local name = app:name()
-            appBindings[key] = bundleID
-            overrides[key] = bundleID
-            hs.settings.set("appBindingOverrides", overrides)
-            hs.alert.show("F19+" .. key .. " → " .. name)
+            if appBindings[key] == bundleID then
+                local ok, saveErr = updateAppBinding(key, nil)
+                if not ok then
+                    showBindingSaveError(saveErr)
+                    return
+                end
+                hs.alert.show("F19+" .. key .. " cleared")
+            else
+                local ok, saveErr = updateAppBinding(key, bundleID)
+                if not ok then
+                    showBindingSaveError(saveErr)
+                    return
+                end
+                hs.alert.show("F19+" .. key .. " → " .. name)
+            end
         elseif appBindings[key] then
             toggleApp(appBindings[key])
         end
@@ -137,25 +170,26 @@ end)
 local bluetoothHelper = hs.configdir .. "/bluetooth-toggle.js"
 local btBusy = false
 
+local function showBluetoothError(name, detail)
+    hs.alert.show(name .. " error")
+    if detail and detail ~= "" then
+        print(detail)
+    end
+end
+
 local function toggleBluetooth(mac, name)
     if btBusy then return end
     btBusy = true
     local task = hs.task.new("/usr/bin/osascript", function(exitCode, stdOut, stdErr)
         btBusy = false
         if exitCode ~= 0 then
-            hs.alert.show(name .. " error")
-            if stdErr and stdErr ~= "" then
-                print(stdErr)
-            end
+            showBluetoothError(name, stdErr)
             return
         end
 
         local ok, result = pcall(hs.json.decode, stdOut or "")
         if not ok or type(result) ~= "table" then
-            hs.alert.show(name .. " error")
-            if stdOut and stdOut ~= "" then
-                print(stdOut)
-            end
+            showBluetoothError(name, stdOut)
             return
         end
 
@@ -181,7 +215,7 @@ local function toggleBluetooth(mac, name)
 
     if not task then
         btBusy = false
-        hs.alert.show(name .. " error")
+        showBluetoothError(name)
         return
     end
 
@@ -256,23 +290,35 @@ end)
 -- Window Management
 -- ============================================================
 local pinMode = false
-local gutterWidth = 400
 
 local sizes = { left = { 0.5, 2 / 3 }, right = { 0.5, 1 / 3 } }
 
-local function maximizeAllOnScreen()
-    local screen = hs.screen.mainScreen()
-    local sf = screen:frame()
-    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
-    local focused = hs.window.focusedWindow()
+local function standardWindowsOnScreen(screen)
+    local windows = {}
     for _, win in ipairs(hs.window.visibleWindows()) do
         if win:screen() == screen and win:isStandard() then
-            win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
+            table.insert(windows, win)
         end
     end
+    return windows
+end
 
-    if focused and focused:screen() == screen then
-        centerMouseOnWindow(focused)
+local function usableWidth(screenFrame)
+    return pinMode and math.floor(screenFrame.w * 0.75) or screenFrame.w
+end
+
+local function maximizeWindow(win)
+    if not win then return end
+    local sf = win:screen():frame()
+    win:setFrame(hs.geometry.rect(sf.x, sf.y, usableWidth(sf), sf.h))
+end
+
+local function maximizeAllOnScreen()
+    local screen = hs.screen.mainScreen()
+    local windows = standardWindowsOnScreen(screen)
+
+    for _, win in ipairs(windows) do
+        maximizeWindow(win)
     end
 end
 
@@ -282,7 +328,7 @@ local function moveWindow(direction)
 
     local f = win:frame()
     local sf = win:screen():frame()
-    local availW = pinMode and (sf.w - gutterWidth) or sf.w
+    local availW = usableWidth(sf)
     local curX = (f.x - sf.x) / availW
     local curW = f.w / availW
     local tol = 0.05
@@ -309,19 +355,13 @@ local function moveWindow(direction)
             win:setFrame(hs.geometry.rect(sf.x + availW - actual.w, sf.y, actual.w, sf.h))
         end
     end
-
-    centerMouseOnWindow(win)
 end
 
 hyper:bind({}, "j", function() moveWindow("left") end)
 
 hyper:bind({}, "k", function()
     local win = hs.window.focusedWindow()
-    if not win then return end
-    local sf = win:screen():frame()
-    local maxW = pinMode and (sf.w - gutterWidth) or sf.w
-    win:setFrame(hs.geometry.rect(sf.x, sf.y, maxW, sf.h))
-    centerMouseOnWindow(win)
+    maximizeWindow(win)
 end)
 
 hyper:bind({}, "l", function() moveWindow("right") end)
@@ -330,7 +370,7 @@ hyper:bind({}, ";", function() maximizeAllOnScreen() end)
 
 hyper:bind({}, "u", function()
     pinMode = not pinMode
-    hs.alert.show(pinMode and "Gutter ON" or "Gutter OFF")
+    hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
     maximizeAllOnScreen()
 end)
 
@@ -338,7 +378,8 @@ hyper:bind({}, "h", function()
     local win = hs.window.focusedWindow()
     if not win then return end
     win:moveToScreen(win:screen():next())
-    centerMouseOnWindow(win)
+    local center = hs.geometry.rectMidPoint(win:frame())
+    hs.mouse.absolutePosition(center)
 end)
 
 -- ============================================================
