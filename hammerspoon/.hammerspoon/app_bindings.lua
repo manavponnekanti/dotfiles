@@ -12,7 +12,7 @@ return {
     ["n"] = "net.shinyfrog.bear",
     ["o"] = "md.obsidian",
     ["p"] = "com.apple.Preview",
-    ["r"] = "com.apple.reminders",
+    ["q"] = "net.ankiweb.launcher",
     ["s"] = "com.apple.systempreferences",
     ["t"] = "ru.keepcoder.Telegram",
     ["w"] = "net.whatsapp.WhatsApp",
