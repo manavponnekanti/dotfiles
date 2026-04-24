@@ -85,6 +85,10 @@ function M.setup(hyper)
         return false, saveErr
     end
 
+    hyper:bind({}, "4", function()
+        toggleApp("cc.ffitch.shottr")
+    end)
+
     for _, key in ipairs(assignableKeys) do
         hyper:bind({}, key, function()
             if assignMode then
