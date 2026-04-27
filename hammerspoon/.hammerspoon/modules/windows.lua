@@ -4,7 +4,7 @@ function M.setup(hyper)
     local pinMode = false
 
     local sizes = { left = { 0.5, 2 / 3 }, right = { 0.5, 1 / 3 } }
-    local restoreLeftQuarterBundleIDs = {
+    local restoreLeftHalfBundleIDs = {
         ["com.apple.MobileSMS"] = true,
         ["ru.keepcoder.Telegram"] = true,
         ["net.whatsapp.WhatsApp"] = true,
@@ -58,13 +58,6 @@ function M.setup(hyper)
         end
     end
 
-    local function moveWindowToLeftQuarter(win)
-        if not win then return end
-
-        local sf = win:screen():frame()
-        setWindowFrame(win, sf.x, sf.w * 0.25)
-    end
-
     local function moveWindowToRightQuarter(win)
         if not win then return end
 
@@ -72,12 +65,19 @@ function M.setup(hyper)
         setWindowFrame(win, sf.x + (sf.w * 0.75), sf.w * 0.25, true)
     end
 
-    local function shouldRestoreToLeftQuarter(win)
+    local function moveWindowToLeftHalf(win)
+        if not win then return end
+
+        local sf = win:screen():frame()
+        setWindowFrame(win, sf.x, sf.w * 0.5)
+    end
+
+    local function shouldRestoreToLeftHalf(win)
         local app = win and win:application()
         if not app then return false end
 
         local bundleID = app:bundleID()
-        return bundleID and restoreLeftQuarterBundleIDs[bundleID] or false
+        return bundleID and restoreLeftHalfBundleIDs[bundleID] or false
     end
 
     local function maximizeWindow(win)
@@ -109,8 +109,8 @@ function M.setup(hyper)
 
     local function restoreWindows(windows)
         for _, win in ipairs(windows) do
-            if shouldRestoreToLeftQuarter(win) then
-                moveWindowToLeftQuarter(win)
+            if shouldRestoreToLeftHalf(win) then
+                moveWindowToLeftHalf(win)
             else
                 maximizeWindow(win)
             end
@@ -160,8 +160,6 @@ function M.setup(hyper)
     end
 
     bindWindowAction("j", function(win) moveWindow(win, "left") end)
-
-    bindWindowAction(",", moveWindowToLeftQuarter)
 
     bindWindowAction("k", maximizeWindow)
 
