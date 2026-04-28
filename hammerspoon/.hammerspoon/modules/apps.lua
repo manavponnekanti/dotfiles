@@ -63,17 +63,8 @@ local function toggleApp(bundleID)
     local app = hs.application.get(bundleID)
     if app and app:isFrontmost() then
         app:hide()
-    elseif app then
-        app:unhide()
-        app:activate(true)
     else
         hs.application.launchOrFocusByBundleID(bundleID)
-        hs.timer.doAfter(0.1, function()
-            local launchedApp = hs.application.get(bundleID)
-            if launchedApp then
-                launchedApp:activate(true)
-            end
-        end)
     end
 end
 
