@@ -59,12 +59,23 @@ local function showBindingSaveError(saveErr)
     end
 end
 
+local function raiseAppWindows(app)
+    if not app then return end
+
+    app:unhide()
+    app:activate(true)
+end
+
 local function toggleApp(bundleID)
     local app = hs.application.get(bundleID)
     if app and app:isFrontmost() then
         app:hide()
     else
         hs.application.launchOrFocusByBundleID(bundleID)
+        raiseAppWindows(hs.application.get(bundleID))
+        hs.timer.doAfter(0.2, function()
+            raiseAppWindows(hs.application.get(bundleID))
+        end)
     end
 end
 
