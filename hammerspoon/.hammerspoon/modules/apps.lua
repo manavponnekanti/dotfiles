@@ -1,7 +1,7 @@
 local M = {}
 
 local assignableKeys = { "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
-    "q", "r", "s", "t", "v", "w", "x", "y", "z", "\\" }
+    "q", "s", "t", "v", "w", "x", "y", "z" }
 
 local appBindingsPath = hs.configdir .. "/app_bindings.lua"
 
@@ -73,15 +73,11 @@ local function toggleApp(bundleID)
     else
         hs.application.launchOrFocusByBundleID(bundleID)
         raiseAppWindows(hs.application.get(bundleID))
-        hs.timer.doAfter(0.2, function()
-            raiseAppWindows(hs.application.get(bundleID))
-        end)
     end
 end
 
 function M.setup(hyper)
     local appBindings = loadAppBindings()
-    local assignMode = false
 
     local function updateAppBinding(key, bundleID)
         local previous = appBindings[key]
@@ -96,43 +92,44 @@ function M.setup(hyper)
         return false, saveErr
     end
 
+    local function assignFrontmostApp(key)
+        local app = hs.application.frontmostApplication()
+        if not app then return end
+
+        local bundleID = app:bundleID()
+        local name = app:name()
+        if appBindings[key] == bundleID then
+            local ok, saveErr = updateAppBinding(key, nil)
+            if not ok then
+                showBindingSaveError(saveErr)
+                return
+            end
+            hs.alert.show("F19+" .. key .. " cleared")
+        else
+            local ok, saveErr = updateAppBinding(key, bundleID)
+            if not ok then
+                showBindingSaveError(saveErr)
+                return
+            end
+            hs.alert.show("F19+" .. key .. " → " .. name)
+        end
+    end
+
     hyper:bind({}, "4", function()
         toggleApp("cc.ffitch.shottr")
     end)
 
     for _, key in ipairs(assignableKeys) do
         hyper:bind({}, key, function()
-            if assignMode then
-                assignMode = false
-                local app = hs.application.frontmostApplication()
-                if not app then return end
-                local bundleID = app:bundleID()
-                local name = app:name()
-                if appBindings[key] == bundleID then
-                    local ok, saveErr = updateAppBinding(key, nil)
-                    if not ok then
-                        showBindingSaveError(saveErr)
-                        return
-                    end
-                    hs.alert.show("F19+" .. key .. " cleared")
-                else
-                    local ok, saveErr = updateAppBinding(key, bundleID)
-                    if not ok then
-                        showBindingSaveError(saveErr)
-                        return
-                    end
-                    hs.alert.show("F19+" .. key .. " → " .. name)
-                end
-            elseif appBindings[key] then
+            if appBindings[key] then
                 toggleApp(appBindings[key])
             end
         end)
-    end
 
-    hyper:bind({}, "`", function()
-        assignMode = not assignMode
-        hs.alert.show(assignMode and "Assign mode: press a key" or "Assign mode off")
-    end)
+        hyper:bind({ "shift" }, key, function()
+            assignFrontmostApp(key)
+        end)
+    end
 end
 
 return M

@@ -1,5 +1,4 @@
 return {
-    ["\\"] = "com.apple.Passwords",
     ["a"] = "com.apple.Terminal",
     ["b"] = "net.imput.helium",
     ["c"] = "com.apple.iCal",
@@ -11,7 +10,7 @@ return {
     ["m"] = "com.apple.mail",
     ["n"] = "net.shinyfrog.bear",
     ["o"] = "md.obsidian",
-    ["p"] = "com.microsoft.Powerpoint",
+    ["p"] = "com.apple.Preview",
     ["s"] = "com.apple.systempreferences",
     ["t"] = "ru.keepcoder.Telegram",
     ["w"] = "net.whatsapp.WhatsApp",

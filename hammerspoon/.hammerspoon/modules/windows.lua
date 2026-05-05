@@ -3,7 +3,6 @@ local M = {}
 function M.setup(hyper)
     local pinMode = false
 
-    local sizes = { left = { 0.5, 2 / 3 }, right = { 0.5, 1 / 3 } }
     local restoreLeftHalfBundleIDs = {
         ["com.apple.MobileSMS"] = true,
         ["ru.keepcoder.Telegram"] = true,
@@ -18,25 +17,6 @@ function M.setup(hyper)
             end
         end
         return windows
-    end
-
-    local function standardWindowsForApp(app)
-        local windows = {}
-        if not app then return windows end
-
-        for _, win in ipairs(app:allWindows()) do
-            if win:isStandard() then
-                table.insert(windows, win)
-            end
-        end
-
-        return windows
-    end
-
-    local function focusedAppWindows()
-        local win = hs.window.focusedWindow()
-        local app = win and win:application()
-        return standardWindowsForApp(app)
     end
 
     local function usableWidth(screenFrame)
@@ -54,6 +34,21 @@ function M.setup(hyper)
             local rightEdge = x + w
             if math.abs((actual.x + actual.w) - rightEdge) > 1 then
                 win:setFrame(hs.geometry.rect(rightEdge - actual.w, sf.y, actual.w, sf.h))
+            end
+        end
+    end
+
+    local function setWindowVerticalFrame(win, y, h, anchorBottomEdge)
+        if not win then return end
+
+        local f = win:frame()
+        win:setFrame(hs.geometry.rect(f.x, y, f.w, h), 0)
+
+        if anchorBottomEdge then
+            local actual = win:frame()
+            local bottomEdge = y + h
+            if math.abs((actual.y + actual.h) - bottomEdge) > 1 then
+                win:setFrame(hs.geometry.rect(actual.x, bottomEdge - actual.h, actual.w, actual.h), 0)
             end
         end
     end
@@ -86,14 +81,17 @@ function M.setup(hyper)
         setWindowFrame(win, sf.x, usableWidth(sf))
     end
 
-    local function centerWindow(win)
+    local function moveWindowVertically(win, side)
         if not win then return end
 
         local sf = win:screen():frame()
-        local availW = usableWidth(sf)
-        local w = availW * 0.5
-        local x = sf.x + ((availW - w) / 2)
-        setWindowFrame(win, x, w)
+        local topEdge = sf.y
+
+        if side == "bottom" then
+            setWindowVerticalFrame(win, topEdge + (sf.h * 0.5), sf.h * 0.5, true)
+        else
+            setWindowVerticalFrame(win, topEdge, sf.h * 0.5)
+        end
     end
 
     local function maximizeWindows(windows)
@@ -122,67 +120,48 @@ function M.setup(hyper)
         restoreWindows(standardWindowsOnScreen(screen))
     end
 
-    local function moveWindow(win, direction)
+    local function moveWindow(win, direction, size)
         if not win then return end
-        local f = win:frame()
         local sf = win:screen():frame()
         local availW = usableWidth(sf)
-        local curX = (f.x - sf.x) / availW
-        local curW = f.w / availW
-        local tol = 0.05
-
-        local sizeList = sizes[direction]
-        local nextIdx = 1
-        for i, size in ipairs(sizeList) do
-            local expX = direction == "left" and 0 or (1 - size)
-            if math.abs(curW - size) < tol and math.abs(curX - expX) < tol then
-                nextIdx = (i % #sizeList) + 1
-                break
-            end
-        end
-
-        local size = sizeList[nextIdx]
         local x = direction == "left" and sf.x or (sf.x + availW * (1 - size))
         local w = availW * size
         setWindowFrame(win, x, w, direction == "right")
     end
 
-    local function bindWindowAction(key, action)
-        hyper:bind({}, key, function()
-            action(hs.window.focusedWindow())
-        end)
+    hyper:bind({}, "j", function()
+        moveWindow(hs.window.focusedWindow(), "left", 0.5)
+    end)
 
-        hyper:bind({ "shift" }, key, function()
-            for _, win in ipairs(focusedAppWindows()) do
-                action(win)
-            end
-        end)
-    end
+    hyper:bind({ "shift" }, "j", function()
+        moveWindow(hs.window.focusedWindow(), "left", 2 / 3)
+    end)
 
-    bindWindowAction("j", function(win) moveWindow(win, "left") end)
+    hyper:bind({}, "k", function()
+        maximizeWindow(hs.window.focusedWindow())
+    end)
 
-    bindWindowAction("k", maximizeWindow)
+    hyper:bind({}, "return", function()
+        moveWindowVertically(hs.window.focusedWindow(), "top")
+    end)
 
-    bindWindowAction("'", centerWindow)
+    hyper:bind({ "shift" }, "return", function()
+        moveWindowVertically(hs.window.focusedWindow(), "bottom")
+    end)
 
-    bindWindowAction("l", function(win) moveWindow(win, "right") end)
+    hyper:bind({}, "l", function()
+        moveWindow(hs.window.focusedWindow(), "right", 0.5)
+    end)
+
+    hyper:bind({ "shift" }, "l", function()
+        moveWindow(hs.window.focusedWindow(), "right", 1 / 3)
+    end)
 
     hyper:bind({}, ";", function()
         if pinMode then
             moveWindowToRightQuarter(hs.window.focusedWindow())
         else
             restoreAllOnScreen()
-        end
-    end)
-
-    hyper:bind({ "shift" }, ";", function()
-        local windows = focusedAppWindows()
-        if pinMode then
-            for _, win in ipairs(windows) do
-                moveWindowToRightQuarter(win)
-            end
-        else
-            restoreWindows(windows)
         end
     end)
 
@@ -193,18 +172,6 @@ function M.setup(hyper)
             maximizeAllOnScreen()
         else
             restoreAllOnScreen()
-        end
-    end)
-
-    hyper:bind({ "shift" }, "u", function()
-        pinMode = not pinMode
-        hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
-
-        local windows = focusedAppWindows()
-        if pinMode then
-            maximizeWindows(windows)
-        else
-            restoreWindows(windows)
         end
     end)
 
