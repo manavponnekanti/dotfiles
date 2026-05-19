@@ -111,8 +111,8 @@ function M.setup(hyper)
         end)
     end
 
-    hyper:bind({}, "1", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
-    hyper:bind({}, "3", function() toggleBluetooth("54-2a-43-0d-49-cf", "AirPods Pro") end)
+    hyper:bind({ "shift" }, "x", function() toggleBluetooth("ac-80-0a-7a-c0-98", "XM5") end)
+    -- hyper:bind({ "shift" }, "a", function() toggleBluetooth("54-2a-43-0d-49-cf", "AirPods Pro") end)
 end
 
 return M

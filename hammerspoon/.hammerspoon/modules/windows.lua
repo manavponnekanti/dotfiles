@@ -9,6 +9,8 @@ function M.setup(hyper)
         ["net.whatsapp.WhatsApp"] = true,
     }
 
+    local finderBundleID = "com.apple.finder"
+
     local function standardWindowsOnScreen(screen)
         local windows = {}
         for _, win in ipairs(hs.window.visibleWindows()) do
@@ -27,13 +29,22 @@ function M.setup(hyper)
         if not win then return end
 
         local sf = win:screen():frame()
-        win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h))
+        if anchorRightEdge then
+            local rightEdge = math.floor(x + w + 0.5)
+            w = math.ceil(w)
+            x = rightEdge - w
+        else
+            x = math.floor(x + 0.5)
+            w = math.floor(w + 0.5)
+        end
+
+        win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h), 0)
 
         if anchorRightEdge then
             local actual = win:frame()
             local rightEdge = x + w
             if math.abs((actual.x + actual.w) - rightEdge) > 1 then
-                win:setFrame(hs.geometry.rect(rightEdge - actual.w, sf.y, actual.w, sf.h))
+                win:setFrame(hs.geometry.rect(rightEdge - actual.w, sf.y, actual.w, sf.h), 0)
             end
         end
     end
@@ -65,6 +76,29 @@ function M.setup(hyper)
 
         local sf = win:screen():frame()
         setWindowFrame(win, sf.x, sf.w * 0.5)
+    end
+
+    local function moveWindowToLeftTwoThirds(win)
+        if not win then return end
+
+        local sf = win:screen():frame()
+        setWindowFrame(win, sf.x, sf.w * (2 / 3))
+    end
+
+    local function moveWindowToRightThird(win)
+        if not win then return end
+
+        local sf = win:screen():frame()
+        setWindowFrame(win, sf.x + (sf.w * (2 / 3)), sf.w * (1 / 3), true)
+    end
+
+    local function isFinderWindow(win)
+        local app = win and win:application()
+        return app and app:bundleID() == finderBundleID or false
+    end
+
+    local function isDownloadsWindow(win)
+        return win and win:title() == "Downloads" or false
     end
 
     local function shouldRestoreToLeftHalf(win)
@@ -106,8 +140,31 @@ function M.setup(hyper)
     end
 
     local function restoreWindows(windows)
+        local restoredFinderWindows = {}
+        local downloadsWindow = nil
+        local otherFinderWindow = nil
+
         for _, win in ipairs(windows) do
-            if shouldRestoreToLeftHalf(win) then
+            if isFinderWindow(win) then
+                if isDownloadsWindow(win) then
+                    downloadsWindow = downloadsWindow or win
+                else
+                    otherFinderWindow = otherFinderWindow or win
+                end
+            end
+        end
+
+        if downloadsWindow and otherFinderWindow then
+            moveWindowToLeftTwoThirds(otherFinderWindow)
+            moveWindowToRightThird(downloadsWindow)
+            restoredFinderWindows[otherFinderWindow] = true
+            restoredFinderWindows[downloadsWindow] = true
+        end
+
+        for _, win in ipairs(windows) do
+            if restoredFinderWindows[win] then
+                -- Already positioned as part of the Finder two-window layout.
+            elseif shouldRestoreToLeftHalf(win) then
                 moveWindowToLeftHalf(win)
             else
                 maximizeWindow(win)

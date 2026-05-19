@@ -1,6 +1,7 @@
 local M = {}
 
-local assignableKeys = { "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
+local assignableKeys = { "0", "1", "2", "5", "6", "7", "8", "9",
+    "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
     "q", "s", "t", "v", "w", "x", "y", "z" }
 
 local appBindingsPath = hs.configdir .. "/app_bindings.lua"
@@ -78,6 +79,7 @@ end
 
 function M.setup(hyper)
     local appBindings = loadAppBindings()
+    local assignMode = false
 
     local function updateAppBinding(key, bundleID)
         local previous = appBindings[key]
@@ -116,20 +118,44 @@ function M.setup(hyper)
     end
 
     hyper:bind({}, "4", function()
-        toggleApp("cc.ffitch.shottr")
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "4")
+    end)
+
+    hyper:bind({}, "3", function()
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "3")
+    end)
+
+    hyper:bind({ "shift" }, "d", function()
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "d")
+    end)
+
+    hyper:bind({ "shift" }, "p", function()
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "p")
+    end)
+
+    hyper:bind({ "shift" }, "a", function()
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "a")
+    end)
+
+    hyper:bind({}, "space", function()
+        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "space")
     end)
 
     for _, key in ipairs(assignableKeys) do
         hyper:bind({}, key, function()
-            if appBindings[key] then
+            if assignMode then
+                assignMode = false
+                assignFrontmostApp(key)
+            elseif appBindings[key] then
                 toggleApp(appBindings[key])
             end
         end)
-
-        hyper:bind({ "shift" }, key, function()
-            assignFrontmostApp(key)
-        end)
     end
+
+    hyper:bind({}, "`", function()
+        assignMode = not assignMode
+        hs.alert.show(assignMode and "Assign mode: press a key" or "Assign mode off")
+    end)
 end
 
 return M
