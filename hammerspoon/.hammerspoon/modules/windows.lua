@@ -11,6 +11,10 @@ function M.setup(hyper)
 
     local finderBundleID = "com.apple.finder"
 
+    local function activeWindow()
+        return hs.window.focusedWindow() or hs.window.frontmostWindow()
+    end
+
     local function standardWindowsOnScreen(screen)
         local windows = {}
         for _, win in ipairs(hs.window.visibleWindows()) do
@@ -187,36 +191,36 @@ function M.setup(hyper)
     end
 
     hyper:bind({}, "j", function()
-        moveWindow(hs.window.focusedWindow(), "left", 0.5)
+        moveWindow(activeWindow(), "left", 0.5)
     end)
 
     hyper:bind({ "shift" }, "j", function()
-        moveWindow(hs.window.focusedWindow(), "left", 2 / 3)
+        moveWindow(activeWindow(), "left", 2 / 3)
     end)
 
     hyper:bind({}, "k", function()
-        maximizeWindow(hs.window.focusedWindow())
+        maximizeWindow(activeWindow())
     end)
 
     hyper:bind({}, "return", function()
-        moveWindowVertically(hs.window.focusedWindow(), "top")
+        moveWindowVertically(activeWindow(), "top")
     end)
 
     hyper:bind({ "shift" }, "return", function()
-        moveWindowVertically(hs.window.focusedWindow(), "bottom")
+        moveWindowVertically(activeWindow(), "bottom")
     end)
 
     hyper:bind({}, "l", function()
-        moveWindow(hs.window.focusedWindow(), "right", 0.5)
+        moveWindow(activeWindow(), "right", 0.5)
     end)
 
     hyper:bind({ "shift" }, "l", function()
-        moveWindow(hs.window.focusedWindow(), "right", 1 / 3)
+        moveWindow(activeWindow(), "right", 1 / 3)
     end)
 
     hyper:bind({}, ";", function()
         if pinMode then
-            moveWindowToRightQuarter(hs.window.focusedWindow())
+            moveWindowToRightQuarter(activeWindow())
         else
             restoreAllOnScreen()
         end
@@ -233,7 +237,7 @@ function M.setup(hyper)
     end)
 
     hyper:bind({}, "h", function()
-        local win = hs.window.focusedWindow()
+        local win = activeWindow()
         if not win then return end
         win:moveToScreen(win:screen():next())
         local center = hs.geometry.rectMidPoint(win:frame())

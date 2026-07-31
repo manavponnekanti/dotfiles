@@ -14,19 +14,6 @@ function M.setup()
     hs.alert.defaultStyle.fadeInDuration = 0.08
     hs.alert.defaultStyle.fadeOutDuration = 0.12
 
-    if not hs.alert._dedupeOriginalShow then
-        hs.alert._dedupeOriginalShow = hs.alert.show
-
-        hs.alert.show = function(...)
-            if hs.alert._dedupeCurrentAlertId then
-                hs.alert.closeSpecific(hs.alert._dedupeCurrentAlertId, 0)
-                hs.alert._dedupeCurrentAlertId = nil
-            end
-
-            hs.alert._dedupeCurrentAlertId = hs.alert._dedupeOriginalShow(...)
-            return hs.alert._dedupeCurrentAlertId
-        end
-    end
 end
 
 return M

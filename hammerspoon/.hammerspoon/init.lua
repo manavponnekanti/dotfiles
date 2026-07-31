@@ -5,16 +5,12 @@ end
 local alerts = loadModule("alerts")
 local hyperModule = loadModule("hyper")
 local apps = loadModule("apps")
-local bluetooth = loadModule("bluetooth")
-local menuSearch = loadModule("menu_search")
 local windows = loadModule("windows")
 
 alerts.setup()
 
 local hyper = hyperModule.setup()
 apps.setup(hyper)
-bluetooth.setup(hyper)
-menuSearch.setup(hyper)
 windows.setup(hyper)
 
 hyper:bind({ "shift" }, "r", hs.reload)
