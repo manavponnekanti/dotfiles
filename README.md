@@ -28,15 +28,6 @@ stow zsh git hammerspoon karabiner
 
 Open Karabiner-Elements once and follow its prompts to enable its background services, Accessibility permission, and virtual keyboard driver. The stowed configuration maps Caps Lock and Right Command to Meh (Control+Option+Shift).
 
-### 5. Install Hammerspoon ReloadConfiguration spoon
-
-```sh
-mkdir -p ~/.hammerspoon/Spoons
-curl -fsSL "https://github.com/Hammerspoon/Spoons/raw/master/Spoons/ReloadConfiguration.spoon.zip" -o /tmp/ReloadConfiguration.spoon.zip
-unzip -qo /tmp/ReloadConfiguration.spoon.zip -d ~/.hammerspoon/Spoons
-rm /tmp/ReloadConfiguration.spoon.zip
-```
-
 ## Maintenance
 
 ### Updating Brew packages
