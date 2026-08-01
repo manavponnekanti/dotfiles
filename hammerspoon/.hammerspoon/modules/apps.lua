@@ -1,10 +1,18 @@
 local M = {}
+local alerts = nil
 
-local assignableKeys = { "0", "1", "2", "5", "6", "7", "8", "9",
+local assignableKeys = { "0", "2", "5", "6", "7", "8", "9",
     "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
     "q", "s", "t", "v", "w", "x", "y", "z" }
 
 local appBindingsPath = hs.configdir .. "/app_bindings.lua"
+
+local function showAlert(message, ...)
+    if alerts then
+        return alerts.show(message, ...)
+    end
+    return hs.alert.show(message, ...)
+end
 
 local function serializeBindings(bindings)
     local keys = {}
@@ -44,17 +52,17 @@ local function loadAppBindings()
     end
 
     if ok then
-        hs.alert.show("app_bindings.lua error")
+        showAlert("app_bindings.lua error")
         print("app_bindings.lua must return a table")
     else
-        hs.alert.show(loaded:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
+        showAlert(loaded:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
         print(loaded)
     end
     return {}
 end
 
 local function showBindingSaveError(saveErr)
-    hs.alert.show("Binding save failed")
+    showAlert("Binding save failed")
     if saveErr then
         print(saveErr)
     end
@@ -77,9 +85,32 @@ local function toggleApp(bundleID)
     end
 end
 
-function M.setup(hyper)
+function M.setup(meh, alertModule)
+    alerts = alertModule
     local appBindings = loadAppBindings()
     local assignMode = false
+    local assignModeAlert = nil
+
+    local function closeAssignModeAlert()
+        if assignModeAlert then
+            alerts.close(assignModeAlert, 0)
+            assignModeAlert = nil
+        end
+    end
+
+    local function enterAssignMode()
+        assignMode = true
+        closeAssignModeAlert()
+        assignModeAlert = alerts.showPersistent("Assign mode: press a key")
+    end
+
+    local function exitAssignMode(showCancelledAlert)
+        assignMode = false
+        closeAssignModeAlert()
+        if showCancelledAlert then
+            showAlert("Assign mode off")
+        end
+    end
 
     local function updateAppBinding(key, bundleID)
         local previous = appBindings[key]
@@ -106,45 +137,21 @@ function M.setup(hyper)
                 showBindingSaveError(saveErr)
                 return
             end
-            hs.alert.show("F19+" .. key .. " cleared")
+            showAlert("Meh+" .. key .. " cleared")
         else
             local ok, saveErr = updateAppBinding(key, bundleID)
             if not ok then
                 showBindingSaveError(saveErr)
                 return
             end
-            hs.alert.show("F19+" .. key .. " → " .. name)
+            showAlert("Meh+" .. key .. " → " .. name)
         end
     end
 
-    hyper:bind({}, "4", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "4")
-    end)
-
-    hyper:bind({}, "3", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "3")
-    end)
-
-    hyper:bind({ "shift" }, "d", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "d")
-    end)
-
-    hyper:bind({ "shift" }, "p", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "p")
-    end)
-
-    hyper:bind({ "shift" }, "a", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "a")
-    end)
-
-    hyper:bind({}, "space", function()
-        hs.eventtap.keyStroke({ "cmd", "alt", "shift", "ctrl" }, "space")
-    end)
-
     for _, key in ipairs(assignableKeys) do
-        hyper:bind({}, key, function()
+        meh:bind({}, key, function()
             if assignMode then
-                assignMode = false
+                exitAssignMode(false)
                 assignFrontmostApp(key)
             elseif appBindings[key] then
                 toggleApp(appBindings[key])
@@ -152,9 +159,12 @@ function M.setup(hyper)
         end)
     end
 
-    hyper:bind({}, "`", function()
-        assignMode = not assignMode
-        hs.alert.show(assignMode and "Assign mode: press a key" or "Assign mode off")
+    meh:bind({}, "`", function()
+        if assignMode then
+            exitAssignMode(true)
+        else
+            enterAssignMode()
+        end
     end)
 end
 

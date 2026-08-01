@@ -3,16 +3,15 @@ local function loadModule(name)
 end
 
 local alerts = loadModule("alerts")
-local hyperModule = loadModule("hyper")
+local meh = loadModule("meh")
 local apps = loadModule("apps")
 local windows = loadModule("windows")
 
 alerts.setup()
 
-local hyper = hyperModule.setup()
-apps.setup(hyper)
-windows.setup(hyper)
+apps.setup(meh, alerts)
+windows.setup(meh, alerts)
 
-hyper:bind({ "shift" }, "r", hs.reload)
+meh:bind({ "cmd" }, "r", hs.reload)
 
-hs.alert.show("Config loaded")
+alerts.show("Config loaded")

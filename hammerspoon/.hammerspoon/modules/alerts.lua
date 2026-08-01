@@ -1,5 +1,31 @@
 local M = {}
 
+local lastTransientAlert = nil
+
+local function closeTransientAlert()
+    if lastTransientAlert then
+        hs.alert.closeSpecific(lastTransientAlert, 0)
+        lastTransientAlert = nil
+    end
+end
+
+function M.show(message, ...)
+    closeTransientAlert()
+    lastTransientAlert = hs.alert.show(message, ...)
+    return lastTransientAlert
+end
+
+function M.showPersistent(message, ...)
+    return hs.alert.show(message, ..., "indefinite")
+end
+
+function M.close(id, seconds)
+    if id == lastTransientAlert then
+        lastTransientAlert = nil
+    end
+    hs.alert.closeSpecific(id, seconds)
+end
+
 function M.setup()
     hs.window.animationDuration = 0
 

@@ -1,12 +1,11 @@
 return {
-    ["1"] = "com.1password.1password",
     ["a"] = "com.apple.Terminal",
     ["b"] = "com.google.Chrome",
     ["c"] = "com.apple.iCal",
     ["d"] = "com.hnc.Discord",
     ["e"] = "com.apple.FaceTime",
     ["f"] = "com.apple.finder",
-    ["g"] = "com.anthropic.claudefordesktop",
+    ["g"] = "com.openai.codex",
     ["i"] = "com.apple.MobileSMS",
     ["m"] = "com.apple.mail",
     ["n"] = "net.shinyfrog.bear",

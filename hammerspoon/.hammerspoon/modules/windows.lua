@@ -1,6 +1,15 @@
 local M = {}
+local alerts = nil
 
-function M.setup(hyper)
+local function showAlert(message, ...)
+    if alerts then
+        return alerts.show(message, ...)
+    end
+    return hs.alert.show(message, ...)
+end
+
+function M.setup(meh, alertModule)
+    alerts = alertModule
     local pinMode = false
 
     local restoreLeftHalfBundleIDs = {
@@ -190,35 +199,35 @@ function M.setup(hyper)
         setWindowFrame(win, x, w, direction == "right")
     end
 
-    hyper:bind({}, "j", function()
+    meh:bind({}, "j", function()
         moveWindow(activeWindow(), "left", 0.5)
     end)
 
-    hyper:bind({ "shift" }, "j", function()
+    meh:bind({ "cmd" }, "j", function()
         moveWindow(activeWindow(), "left", 2 / 3)
     end)
 
-    hyper:bind({}, "k", function()
+    meh:bind({}, "k", function()
         maximizeWindow(activeWindow())
     end)
 
-    hyper:bind({}, "return", function()
+    meh:bind({}, "return", function()
         moveWindowVertically(activeWindow(), "top")
     end)
 
-    hyper:bind({ "shift" }, "return", function()
+    meh:bind({ "cmd" }, "return", function()
         moveWindowVertically(activeWindow(), "bottom")
     end)
 
-    hyper:bind({}, "l", function()
+    meh:bind({}, "l", function()
         moveWindow(activeWindow(), "right", 0.5)
     end)
 
-    hyper:bind({ "shift" }, "l", function()
+    meh:bind({ "cmd" }, "l", function()
         moveWindow(activeWindow(), "right", 1 / 3)
     end)
 
-    hyper:bind({}, ";", function()
+    meh:bind({}, ";", function()
         if pinMode then
             moveWindowToRightQuarter(activeWindow())
         else
@@ -226,9 +235,9 @@ function M.setup(hyper)
         end
     end)
 
-    hyper:bind({}, "u", function()
+    meh:bind({}, "u", function()
         pinMode = not pinMode
-        hs.alert.show(pinMode and "Pin mode ON" or "Pin mode OFF")
+        showAlert(pinMode and "Pin mode ON" or "Pin mode OFF")
         if pinMode then
             maximizeAllOnScreen()
         else
@@ -236,7 +245,7 @@ function M.setup(hyper)
         end
     end)
 
-    hyper:bind({}, "h", function()
+    meh:bind({}, "h", function()
         local win = activeWindow()
         if not win then return end
         win:moveToScreen(win:screen():next())
