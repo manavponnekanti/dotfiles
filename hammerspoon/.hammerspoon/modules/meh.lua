@@ -1,5 +1,6 @@
 local M = {}
 
+-- "Meh" is Ctrl+Alt+Shift. Callers can add modifiers such as Cmd.
 local baseModifiers = { "ctrl", "alt", "shift" }
 
 local function combinedModifiers(additionalModifiers)

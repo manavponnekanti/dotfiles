@@ -1,6 +1,10 @@
 local M = {}
 local alerts = nil
+-- Windows installs this handler so normal app shortcuts can select an app
+-- from the tiling chooser without duplicating the hotkey bindings.
+local shortcutHandler = nil
 
+-- Every key is bound even when currently unassigned so assignment mode can use it.
 local assignableKeys = { "0", "2", "5", "6", "7", "8", "9",
     "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
     "q", "s", "t", "v", "w", "x", "y", "z" }
@@ -15,6 +19,7 @@ local function showAlert(message, ...)
 end
 
 local function serializeBindings(bindings)
+    -- Keep the generated file deterministic and pleasant to edit by hand.
     local keys = {}
     for key in pairs(bindings) do
         table.insert(keys, key)
@@ -85,6 +90,10 @@ local function toggleApp(bundleID)
     end
 end
 
+function M.setShortcutHandler(handler)
+    shortcutHandler = handler
+end
+
 function M.setup(meh, alertModule)
     alerts = alertModule
     local appBindings = loadAppBindings()
@@ -153,6 +162,10 @@ function M.setup(meh, alertModule)
             if assignMode then
                 exitAssignMode(false)
                 assignFrontmostApp(key)
+            -- The chooser gets first refusal; otherwise this remains a normal
+            -- launch/focus/hide app shortcut.
+            elseif shortcutHandler and shortcutHandler(key, appBindings[key]) then
+                return
             elseif appBindings[key] then
                 toggleApp(appBindings[key])
             end

@@ -1,5 +1,7 @@
 local M = {}
 
+-- Showing a new transient alert replaces the previous one instead of stacking
+-- several notifications on screen.
 local lastTransientAlert = nil
 
 local function closeTransientAlert()
@@ -16,6 +18,7 @@ function M.show(message, ...)
 end
 
 function M.showPersistent(message, ...)
+    -- Persistent alerts are used for modes that remain active until another key.
     return hs.alert.show(message, ..., "indefinite")
 end
 
