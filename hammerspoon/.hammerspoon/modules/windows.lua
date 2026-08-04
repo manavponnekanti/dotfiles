@@ -19,6 +19,7 @@ function M.setup(meh, alertModule)
     }
 
     local finderBundleID = "com.apple.finder"
+    local downloadsPath = os.getenv("HOME") .. "/Downloads"
 
     local function activeWindow()
         return hs.window.focusedWindow() or hs.window.frontmostWindow()
@@ -38,10 +39,10 @@ function M.setup(meh, alertModule)
         return pinMode and math.floor(screenFrame.w * 0.75) or screenFrame.w
     end
 
-    local function setWindowFrame(win, x, w, anchorRightEdge)
+    local function setWindowFrame(win, x, w, anchorRightEdge, screen)
         if not win then return end
 
-        local sf = win:screen():frame()
+        local sf = (screen or win:screen()):frame()
         if anchorRightEdge then
             local rightEdge = math.floor(x + w + 0.5)
             w = math.ceil(w)
@@ -91,18 +92,20 @@ function M.setup(meh, alertModule)
         setWindowFrame(win, sf.x, sf.w * 0.5)
     end
 
-    local function moveWindowToLeftTwoThirds(win)
+    local function moveWindowToLeftTwoThirds(win, screen)
         if not win then return end
 
-        local sf = win:screen():frame()
-        setWindowFrame(win, sf.x, sf.w * (2 / 3))
+        screen = screen or win:screen()
+        local sf = screen:frame()
+        setWindowFrame(win, sf.x, sf.w * (2 / 3), false, screen)
     end
 
-    local function moveWindowToRightThird(win)
+    local function moveWindowToRightThird(win, screen)
         if not win then return end
 
-        local sf = win:screen():frame()
-        setWindowFrame(win, sf.x + (sf.w * (2 / 3)), sf.w * (1 / 3), true)
+        screen = screen or win:screen()
+        local sf = screen:frame()
+        setWindowFrame(win, sf.x + (sf.w * (2 / 3)), sf.w * (1 / 3), true, screen)
     end
 
     local function isFinderWindow(win)
@@ -185,9 +188,75 @@ function M.setup(meh, alertModule)
         end
     end
 
+    local function openDefaultFinderWindow()
+        hs.osascript.applescript([[
+tell application "Finder"
+    make new Finder window
+end tell
+]])
+    end
+
+    local function openDownloadsWindow()
+        hs.execute(string.format("open -a Finder %q", downloadsPath))
+    end
+
+    local function arrangeFinderWindows(screen, openMissing, attemptsRemaining)
+        attemptsRemaining = attemptsRemaining or 10
+
+        local finder = hs.application.get(finderBundleID)
+        if not finder then
+            if openMissing then
+                hs.application.launchOrFocusByBundleID(finderBundleID)
+            end
+
+            if attemptsRemaining > 0 then
+                hs.timer.doAfter(0.2, function()
+                    arrangeFinderWindows(screen, openMissing, attemptsRemaining - 1)
+                end)
+            end
+            return
+        end
+
+        finder:unhide()
+
+        local downloadsWindow = nil
+        local otherFinderWindow = nil
+        for _, win in ipairs(finder:allWindows()) do
+            if win:isStandard() then
+                if isDownloadsWindow(win) then
+                    downloadsWindow = downloadsWindow or win
+                else
+                    otherFinderWindow = otherFinderWindow or win
+                end
+            end
+        end
+
+        if downloadsWindow and otherFinderWindow then
+            moveWindowToLeftTwoThirds(otherFinderWindow, screen)
+            moveWindowToRightThird(downloadsWindow, screen)
+            return
+        end
+
+        if openMissing then
+            if not otherFinderWindow then
+                openDefaultFinderWindow()
+            end
+            if not downloadsWindow then
+                openDownloadsWindow()
+            end
+        end
+
+        if attemptsRemaining > 0 then
+            hs.timer.doAfter(0.2, function()
+                arrangeFinderWindows(screen, false, attemptsRemaining - 1)
+            end)
+        end
+    end
+
     local function restoreAllOnScreen()
         local screen = hs.screen.mainScreen()
         restoreWindows(standardWindowsOnScreen(screen))
+        arrangeFinderWindows(screen, true)
     end
 
     local function moveWindow(win, direction, size)
