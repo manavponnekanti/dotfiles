@@ -5,7 +5,7 @@ local alerts = nil
 local shortcutHandler = nil
 
 -- Every key is bound even when currently unassigned so assignment mode can use it.
-local assignableKeys = { "0", "2", "5", "6", "7", "8", "9",
+local assignableKeys = { "0", "2", "4", "5", "6", "7", "8", "9",
     "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
     "q", "s", "t", "v", "w", "x", "y", "z" }
 
@@ -94,7 +94,7 @@ function M.setShortcutHandler(handler)
     shortcutHandler = handler
 end
 
-function M.setup(meh, alertModule)
+function M.setup(hyper, alertModule)
     alerts = alertModule
     local appBindings = loadAppBindings()
     local assignMode = false
@@ -146,19 +146,19 @@ function M.setup(meh, alertModule)
                 showBindingSaveError(saveErr)
                 return
             end
-            showAlert("Meh+" .. key .. " cleared")
+            showAlert("F19+" .. key .. " cleared")
         else
             local ok, saveErr = updateAppBinding(key, bundleID)
             if not ok then
                 showBindingSaveError(saveErr)
                 return
             end
-            showAlert("Meh+" .. key .. " → " .. name)
+            showAlert("F19+" .. key .. " → " .. name)
         end
     end
 
     for _, key in ipairs(assignableKeys) do
-        meh:bind({}, key, function()
+        hyper:bind({}, key, function()
             if assignMode then
                 exitAssignMode(false)
                 assignFrontmostApp(key)
@@ -172,7 +172,7 @@ function M.setup(meh, alertModule)
         end)
     end
 
-    meh:bind({}, "`", function()
+    hyper:bind({}, "`", function()
         if assignMode then
             exitAssignMode(true)
         else

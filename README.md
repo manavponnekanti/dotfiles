@@ -21,12 +21,17 @@ From the dotfiles directory:
 
 ```sh
 cd ~/dotfiles
-stow zsh git hammerspoon karabiner
+stow zsh git hammerspoon keyboard
 ```
 
-### 4. Enable Karabiner-Elements
+### 4. Load keyboard remapping
 
-Open Karabiner-Elements once and follow its prompts to enable its background services, Accessibility permission, and virtual keyboard driver. The stowed configuration maps Caps Lock and Right Command to Meh (Control+Option+Shift).
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.local.KeyRemapping.plist
+```
+
+The remapping uses `hidutil` to map Caps Lock and Right Command to F19. You may
+need to give `/usr/bin/hidutil` Input Monitoring permission.
 
 ## Maintenance
 
@@ -89,5 +94,5 @@ On another machine, pull and re-stow:
 ```sh
 cd ~/dotfiles
 git pull
-stow zsh git hammerspoon karabiner
+stow zsh git hammerspoon keyboard
 ```

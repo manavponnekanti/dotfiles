@@ -8,7 +8,7 @@ local function showAlert(message, ...)
     return hs.alert.show(message, ...)
 end
 
-function M.setup(meh, alertModule, appModule)
+function M.setup(hyper, alertModule, appModule)
     alerts = alertModule
     local pinMode = false
 
@@ -36,34 +36,16 @@ function M.setup(meh, alertModule, appModule)
         return windows
     end
 
-    local function standardRestorableWindows()
+    local function standardRestorableWindowsOnScreen(screen)
         -- allWindows includes hidden and minimized windows. Reset their geometry
         -- without changing whether their application is hidden.
         local windows = {}
         for _, win in ipairs(hs.window.allWindows()) do
-            if win:isStandard() and not win:isFullScreen() then
+            if win:screen() == screen and win:isStandard() and not win:isFullScreen() then
                 table.insert(windows, win)
             end
         end
         return windows
-    end
-
-    local function largestScreen()
-        -- A reset consolidates every restorable window onto the display with most area.
-        local largest = hs.screen.mainScreen()
-        local largestFrame = largest:frame()
-        local largestArea = largestFrame.w * largestFrame.h
-
-        for _, screen in ipairs(hs.screen.allScreens()) do
-            local frame = screen:frame()
-            local area = frame.w * frame.h
-            if area > largestArea then
-                largest = screen
-                largestArea = area
-            end
-        end
-
-        return largest
     end
 
     local function usableWidth(screenFrame)
@@ -167,6 +149,14 @@ function M.setup(meh, alertModule, appModule)
         setWindowFrame(win, sf.x, usableWidth(sf), false, screen)
     end
 
+    local function restoreWindow(win, screen)
+        if shouldRestoreToLeftHalf(win) then
+            moveWindowToLeftHalf(win, screen)
+        else
+            maximizeWindow(win, screen)
+        end
+    end
+
     local function moveWindowVertically(win, side)
         if not win then return end
 
@@ -218,51 +208,19 @@ function M.setup(meh, alertModule, appModule)
         for _, win in ipairs(windows) do
             if restoredFinderWindows[win] then
                 -- Already positioned as part of the Finder two-window layout.
-            elseif shouldRestoreToLeftHalf(win) then
-                moveWindowToLeftHalf(win, screen)
             else
-                maximizeWindow(win, screen)
+                restoreWindow(win, screen)
             end
         end
     end
 
-    local function restoreAllOnScreen()
-        local screen = largestScreen()
-        local windows = standardRestorableWindows()
+    local function restoreWindowsOnActiveScreen()
+        local win = activeWindow()
+        if not win then return end
 
-        -- Moving screens and resizing immediately can race macOS, hence the
-        -- short one-shot delay before applying final frames.
-        for _, win in ipairs(windows) do
-            if win:screen() ~= screen then
-                win:moveToScreen(screen, false, true, 0)
-            end
-        end
-
-        hs.timer.doAfter(0.1, function()
-            restoreWindows(windows, screen)
-        end)
+        local screen = win:screen()
+        restoreWindows(standardRestorableWindowsOnScreen(screen), screen)
     end
-
-    local screenCount = #hs.screen.allScreens()
-    local restoreTimer = nil
-
-    -- Screen notifications can arrive in bursts while docking. Debounce them and
-    -- reset only when the number of connected displays actually changes.
-    M.screenWatcher = hs.screen.watcher.new(function()
-        local newScreenCount = #hs.screen.allScreens()
-        if newScreenCount == screenCount then return end
-
-        screenCount = newScreenCount
-
-        if restoreTimer then
-            restoreTimer:stop()
-        end
-
-        restoreTimer = hs.timer.doAfter(0.5, function()
-            restoreTimer = nil
-            restoreAllOnScreen()
-        end)
-    end):start()
 
     local function moveWindow(win, direction, size, screen)
         if not win then return end
@@ -402,7 +360,7 @@ function M.setup(meh, alertModule, appModule)
     end
 
     if appModule then
-        -- While choosing, Meh+<app key> selects that app instead of toggling it.
+        -- While choosing, F19+<app key> selects that app instead of toggling it.
         appModule.setShortcutHandler(function(_, bundleID)
             if not pairing or not chooser:isVisible() then return false end
             if not bundleID then return true end
@@ -413,53 +371,53 @@ function M.setup(meh, alertModule, appModule)
     end
 
     -- Horizontal tiling commands open the complementary-app chooser.
-    meh:bind({}, "j", function()
+    hyper:bind({}, "j", function()
         tileAndChoose("left", 0.5, "left-half")
     end)
 
-    meh:bind({ "cmd" }, "j", function()
+    hyper:bind({ "shift" }, "j", function()
         tileAndChoose("left", 0.7, "left-70")
     end)
 
-    meh:bind({}, "k", function()
+    hyper:bind({}, "k", function()
         maximizeWindow(activeWindow())
     end)
 
-    meh:bind({}, "return", function()
+    hyper:bind({}, "return", function()
         moveWindowVertically(activeWindow(), "top")
     end)
 
-    meh:bind({ "cmd" }, "return", function()
+    hyper:bind({ "shift" }, "return", function()
         moveWindowVertically(activeWindow(), "bottom")
     end)
 
-    meh:bind({}, "l", function()
+    hyper:bind({}, "l", function()
         tileAndChoose("right", 0.5, "right-half")
     end)
 
-    meh:bind({ "cmd" }, "l", function()
+    hyper:bind({ "shift" }, "l", function()
         tileAndChoose("right", 0.3, "right-30")
     end)
 
-    meh:bind({}, ";", function()
+    hyper:bind({}, ";", function()
         if pinMode then
             moveWindowToRightQuarter(activeWindow())
         else
-            restoreAllOnScreen()
+            restoreWindowsOnActiveScreen()
         end
     end)
 
-    meh:bind({}, "u", function()
+    hyper:bind({}, "u", function()
         pinMode = not pinMode
         showAlert(pinMode and "Pin mode ON" or "Pin mode OFF")
         if pinMode then
             maximizeAllOnScreen()
         else
-            restoreAllOnScreen()
+            restoreWindowsOnActiveScreen()
         end
     end)
 
-    meh:bind({}, "h", function()
+    hyper:bind({}, "h", function()
         local win = activeWindow()
         if not win then return end
         local targetScreen = win:screen():next()
@@ -471,7 +429,7 @@ function M.setup(meh, alertModule, appModule)
             local movedWindow = hs.window.get(windowID)
             if not movedWindow then return end
 
-            maximizeWindow(movedWindow, targetScreen)
+            restoreWindow(movedWindow, targetScreen)
             local center = hs.geometry.rectMidPoint(movedWindow:frame())
             hs.mouse.absolutePosition(center)
         end)

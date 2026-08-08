@@ -110,3 +110,7 @@ source <(fzf --zsh)
 bindkey -r '\ec'
 bindkey '^G' fzf-cd-widget
 export PATH="/Library/TeX/texbin:$PATH"
+
+
+# Added by Antigravity CLI installer
+export PATH="/Users/mbp/.local/bin:$PATH"
