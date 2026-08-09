@@ -25,6 +25,21 @@ function M.setup(hyper, alertModule, appModule)
         return hs.window.focusedWindow() or hs.window.frontmostWindow()
     end
 
+    local function isRestorableWindow(win)
+        if win:isStandard() then return true end
+
+        -- Some apps expose their main window as AXDialog rather than
+        -- AXStandardWindow, so isStandard() alone incorrectly excludes it.
+        local app = win:application()
+        local mainWindow = app and app:mainWindow()
+        local windowID = win:id()
+        return win:role() == "AXWindow"
+            and mainWindow
+            and windowID
+            and mainWindow:id() == windowID
+            or false
+    end
+
     local function standardWindowsOnScreen(screen)
         -- Pin mode only rearranges windows that are currently visible.
         local windows = {}
@@ -36,12 +51,12 @@ function M.setup(hyper, alertModule, appModule)
         return windows
     end
 
-    local function standardRestorableWindowsOnScreen(screen)
+    local function restorableWindowsOnScreen(screen)
         -- allWindows includes hidden and minimized windows. Reset their geometry
         -- without changing whether their application is hidden.
         local windows = {}
         for _, win in ipairs(hs.window.allWindows()) do
-            if win:screen() == screen and win:isStandard() and not win:isFullScreen() then
+            if win:screen() == screen and isRestorableWindow(win) and not win:isFullScreen() then
                 table.insert(windows, win)
             end
         end
@@ -219,7 +234,7 @@ function M.setup(hyper, alertModule, appModule)
         if not win then return end
 
         local screen = win:screen()
-        restoreWindows(standardRestorableWindowsOnScreen(screen), screen)
+        restoreWindows(restorableWindowsOnScreen(screen), screen)
     end
 
     local function moveWindow(win, direction, size, screen)
@@ -371,35 +386,59 @@ function M.setup(hyper, alertModule, appModule)
     end
 
     -- Horizontal tiling commands open the complementary-app chooser.
-    hyper:bind({}, "j", function()
+    hyper:bind({}, "j", {
+        group = "Windows",
+        description = "Left half + choose right",
+    }, function()
         tileAndChoose("left", 0.5, "left-half")
     end)
 
-    hyper:bind({ "shift" }, "j", function()
-        tileAndChoose("left", 0.7, "left-70")
+    hyper:bind({ "shift" }, "j", {
+        group = "Windows",
+        description = "Left ⅔ + choose right",
+    }, function()
+        tileAndChoose("left", 2 / 3, "left-two-thirds")
     end)
 
-    hyper:bind({}, "k", function()
+    hyper:bind({}, "k", {
+        group = "Windows",
+        description = "Maximize window",
+    }, function()
         maximizeWindow(activeWindow())
     end)
 
-    hyper:bind({}, "return", function()
+    hyper:bind({}, "return", {
+        group = "Windows",
+        description = "Top half",
+    }, function()
         moveWindowVertically(activeWindow(), "top")
     end)
 
-    hyper:bind({ "shift" }, "return", function()
+    hyper:bind({ "shift" }, "return", {
+        group = "Windows",
+        description = "Bottom half",
+    }, function()
         moveWindowVertically(activeWindow(), "bottom")
     end)
 
-    hyper:bind({}, "l", function()
+    hyper:bind({}, "l", {
+        group = "Windows",
+        description = "Right half + choose left",
+    }, function()
         tileAndChoose("right", 0.5, "right-half")
     end)
 
-    hyper:bind({ "shift" }, "l", function()
-        tileAndChoose("right", 0.3, "right-30")
+    hyper:bind({ "shift" }, "l", {
+        group = "Windows",
+        description = "Right ⅓ + choose left",
+    }, function()
+        tileAndChoose("right", 1 / 3, "right-third")
     end)
 
-    hyper:bind({}, ";", function()
+    hyper:bind({}, ";", {
+        group = "Windows",
+        description = "Restore layout / pin window",
+    }, function()
         if pinMode then
             moveWindowToRightQuarter(activeWindow())
         else
@@ -407,7 +446,10 @@ function M.setup(hyper, alertModule, appModule)
         end
     end)
 
-    hyper:bind({}, "u", function()
+    hyper:bind({}, "u", {
+        group = "Windows",
+        description = "Toggle pin mode",
+    }, function()
         pinMode = not pinMode
         showAlert(pinMode and "Pin mode ON" or "Pin mode OFF")
         if pinMode then
@@ -417,7 +459,10 @@ function M.setup(hyper, alertModule, appModule)
         end
     end)
 
-    hyper:bind({}, "h", function()
+    hyper:bind({}, "h", {
+        group = "Windows",
+        description = "Move to next display",
+    }, function()
         local win = activeWindow()
         if not win then return end
         local targetScreen = win:screen():next()

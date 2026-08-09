@@ -6,7 +6,7 @@ return {
     ["d"] = "com.hnc.Discord",
     ["e"] = "com.apple.FaceTime",
     ["f"] = "com.apple.finder",
-    ["g"] = "com.google.GeminiMacOS",
+    ["g"] = "com.googlecode.iterm2",
     ["i"] = "com.apple.MobileSMS",
     ["m"] = "com.apple.mail",
     ["n"] = "net.shinyfrog.bear",

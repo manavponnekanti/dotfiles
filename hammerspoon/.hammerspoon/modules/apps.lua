@@ -4,10 +4,13 @@ local alerts = nil
 -- from the tiling chooser without duplicating the hotkey bindings.
 local shortcutHandler = nil
 
--- Every key is bound even when currently unassigned so assignment mode can use it.
-local assignableKeys = { "0", "2", "4", "5", "6", "7", "8", "9",
-    "a", "b", "c", "d", "e", "f", "g", "i", "m", "n", "o", "p",
-    "q", "s", "t", "v", "w", "x", "y", "z" }
+local allAssignableKeys = {}
+for keyCode = string.byte("0"), string.byte("9") do
+    table.insert(allAssignableKeys, string.char(keyCode))
+end
+for keyCode = string.byte("a"), string.byte("z") do
+    table.insert(allAssignableKeys, string.char(keyCode))
+end
 
 local appBindingsPath = hs.configdir .. "/app_bindings.lua"
 
@@ -90,6 +93,11 @@ local function toggleApp(bundleID)
     end
 end
 
+local function appName(bundleID)
+    if not bundleID then return nil end
+    return hs.application.nameForBundleID(bundleID) or bundleID
+end
+
 function M.setShortcutHandler(handler)
     shortcutHandler = handler
 end
@@ -97,6 +105,10 @@ end
 function M.setup(hyper, alertModule)
     alerts = alertModule
     local appBindings = loadAppBindings()
+
+    -- Command modules claim their shortcuts first. App assignment inherits those
+    -- exact modifier/key exclusions instead of maintaining a duplicate list.
+    local assignableKeys = hyper:unboundKeys({}, allAssignableKeys)
     local assignMode = false
     local assignModeAlert = nil
 
@@ -158,7 +170,12 @@ function M.setup(hyper, alertModule)
     end
 
     for _, key in ipairs(assignableKeys) do
-        hyper:bind({}, key, function()
+        hyper:bind({}, key, {
+            group = "Apps",
+            description = function()
+                return appName(appBindings[key])
+            end,
+        }, function()
             if assignMode then
                 exitAssignMode(false)
                 assignFrontmostApp(key)
@@ -172,7 +189,11 @@ function M.setup(hyper, alertModule)
         end)
     end
 
-    hyper:bind({}, "`", function()
+    hyper:bind({}, "`", {
+        group = "Apps",
+        description = "Assign frontmost app",
+        order = 0,
+    }, function()
         if assignMode then
             exitAssignMode(true)
         else
