@@ -69,7 +69,7 @@ end
 function M.setup(hyper, alertModule)
     alerts = alertModule
     hyper:bind({ "shift" }, "b", {
-        group = "System",
+        group = "Utilities",
         description = "Toggle AirPods",
     }, toggle)
 end
