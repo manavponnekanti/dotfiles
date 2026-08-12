@@ -20,8 +20,6 @@ function M.setup(hyper, alertModule, appModule)
         ["net.whatsapp.WhatsApp"] = true,
     }
 
-    local finderBundleID = "com.apple.finder"
-
     local function activeWindow()
         return hs.window.focusedWindow() or hs.window.frontmostWindow()
     end
@@ -149,31 +147,6 @@ function M.setup(hyper, alertModule, appModule)
         setWindowFrame(win, sf.x, sf.w * 0.5, false, screen)
     end
 
-    local function moveWindowToLeftTwoThirds(win, screen)
-        if not win then return end
-
-        screen = screen or win:screen()
-        local sf = screen:frame()
-        setWindowFrame(win, sf.x, sf.w * (2 / 3), false, screen)
-    end
-
-    local function moveWindowToRightThird(win, screen)
-        if not win then return end
-
-        screen = screen or win:screen()
-        local sf = screen:frame()
-        setWindowFrame(win, sf.x + (sf.w * (2 / 3)), sf.w * (1 / 3), true, screen)
-    end
-
-    local function isFinderWindow(win)
-        local app = win and win:application()
-        return app and app:bundleID() == finderBundleID or false
-    end
-
-    local function isDownloadsWindow(win)
-        return win and win:title() == "Downloads" or false
-    end
-
     local function shouldRestoreToLeftHalf(win)
         local app = win and win:application()
         if not app then return false end
@@ -222,35 +195,8 @@ function M.setup(hyper, alertModule, appModule)
     end
 
     local function restoreWindows(windows, screen)
-        -- Finder gets a special two-window layout when both a Downloads window
-        -- and another Finder window are already open. Reset never creates either.
-        local restoredFinderWindows = {}
-        local downloadsWindow = nil
-        local otherFinderWindow = nil
-
         for _, win in ipairs(windows) do
-            if isFinderWindow(win) then
-                if isDownloadsWindow(win) then
-                    downloadsWindow = downloadsWindow or win
-                else
-                    otherFinderWindow = otherFinderWindow or win
-                end
-            end
-        end
-
-        if downloadsWindow and otherFinderWindow then
-            moveWindowToLeftTwoThirds(otherFinderWindow, screen)
-            moveWindowToRightThird(downloadsWindow, screen)
-            restoredFinderWindows[otherFinderWindow] = true
-            restoredFinderWindows[downloadsWindow] = true
-        end
-
-        for _, win in ipairs(windows) do
-            if restoredFinderWindows[win] then
-                -- Already positioned as part of the Finder two-window layout.
-            else
-                restoreWindow(win, screen)
-            end
+            restoreWindow(win, screen)
         end
     end
 

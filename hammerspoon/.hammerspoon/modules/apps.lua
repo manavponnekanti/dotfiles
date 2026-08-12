@@ -76,20 +76,24 @@ local function showBindingSaveError(saveErr)
     end
 end
 
-local function raiseAppWindows(app)
-    if not app then return end
-
-    app:unhide()
-    app:activate(true)
-end
-
 local function toggleApp(bundleID)
     local app = hs.application.get(bundleID)
     if app and app:isFrontmost() then
         app:hide()
     else
-        hs.application.launchOrFocusByBundleID(bundleID)
-        raiseAppWindows(hs.application.get(bundleID))
+        local sourceScreen = hs.mouse.getCurrentScreen()
+        if not hs.application.launchOrFocusByBundleID(bundleID) then return end
+
+        hs.timer.doAfter(0.1, function()
+            local focusedApp = hs.application.get(bundleID)
+            if not focusedApp then return end
+
+            local win = focusedApp:focusedWindow() or focusedApp:mainWindow()
+            local targetScreen = win and win:screen()
+            if not targetScreen or targetScreen == sourceScreen then return end
+
+            hs.mouse.absolutePosition(hs.geometry.rectMidPoint(win:frame()))
+        end)
     end
 end
 
