@@ -1,7 +1,8 @@
 local M = {}
 
 local settingsKey = "flowmodoro.state"
-local breakSoundName = "Glass"
+local shortcutName = "Flowmodoro"
+local minimumSessionSeconds = 10 * 60
 
 local alerts = nil
 local ui = nil
@@ -9,11 +10,11 @@ local palette = nil
 local paletteVisible = false
 local paletteHotkeys = {}
 local paletteRefreshTimer = nil
-local breakTimer = nil
-local lastNotification = nil
 local blockedAppWatcher = nil
 local lastBlockedAppNotification = nil
+local notifiedBlockedAppPIDs = {}
 local paletteElements = nil
+local shortcutTasks = {}
 
 local blockedAppBundleIDs = {
     ["com.apple.MobileSMS"] = true,
@@ -30,7 +31,7 @@ local blockedAppNames = {
 }
 
 local paletteWidth = 420
-local paletteHeight = 236
+local paletteHeight = 249
 
 local function now()
     return os.time()
@@ -66,10 +67,6 @@ local function loadState()
         return state
     end
 
-    if state.phase == "break" and type(state.breakEndsAt) == "number" then
-        return state
-    end
-
     return idleState()
 end
 
@@ -79,6 +76,53 @@ local function show(message)
     else
         hs.alert.show(message)
     end
+end
+
+local function runShortcutWithInput(name, input, silent)
+    local inputPath = os.tmpname()
+    local inputFile, fileError = io.open(inputPath, "w")
+    if not inputFile then
+        if not silent then
+            show("Flowmodoro could not run " .. name .. " • " .. tostring(fileError))
+        end
+        return false
+    end
+    inputFile:write(input)
+    inputFile:close()
+
+    local task
+    task = hs.task.new("/usr/bin/shortcuts", function(exitCode, _, stderr)
+        shortcutTasks[task] = nil
+        os.remove(inputPath)
+        if exitCode ~= 0 and not silent then
+            local detail = stderr:gsub("%s+$", "")
+            show("Flowmodoro could not run " .. name .. " • "
+                .. (detail ~= "" and detail or "unknown Shortcuts error"))
+        end
+    end, { "run", name, "--input-path", inputPath })
+
+    shortcutTasks[task] = true
+    if not task:start() then
+        shortcutTasks[task] = nil
+        os.remove(inputPath)
+        if not silent then
+            show("Flowmodoro could not start " .. name)
+        end
+        return false
+    end
+    return true
+end
+
+local function sendCommand(command, silent)
+    runShortcutWithInput(shortcutName, tostring(command), silent)
+end
+
+local function toggleBackgroundSounds()
+    sendCommand("bs", true)
+end
+
+local function switchBackgroundSound()
+    sendCommand("change", true)
 end
 
 local function blockedAppDisplayName(application)
@@ -101,14 +145,37 @@ local function blockApplicationDuringWork(application)
     end
 
     local appName = blockedAppDisplayName(application)
-    application:hide()
+    local pid = application:pid()
+    application:kill()
 
-    lastBlockedAppNotification = hs.notify.new({
-        title = "Flowmodoro",
-        informativeText = appName .. " is blocked during work.",
-    })
-    lastBlockedAppNotification:send()
+    if not pid or not notifiedBlockedAppPIDs[pid] then
+        if pid then notifiedBlockedAppPIDs[pid] = true end
+        lastBlockedAppNotification = hs.notify.new({
+            title = "Flowmodoro",
+            informativeText = appName .. " was closed during work.",
+        })
+        lastBlockedAppNotification:send()
+    end
     return true
+end
+
+local function terminateRunningBlockedApps()
+    for _, application in ipairs(hs.application.runningApplications()) do
+        blockApplicationDuringWork(application)
+    end
+end
+
+local function startBlockedAppWatcher()
+    if blockedAppWatcher then
+        blockedAppWatcher:start()
+        terminateRunningBlockedApps()
+    end
+end
+
+local function stopBlockedAppWatcher()
+    if blockedAppWatcher then
+        blockedAppWatcher:stop()
+    end
 end
 
 local function hidePalette()
@@ -159,55 +226,6 @@ local function togglePalette()
     end
 end
 
-local function cancelBreakTimer()
-    if breakTimer then
-        breakTimer:stop()
-        breakTimer = nil
-    end
-end
-
-local function notifyBreakComplete()
-    lastNotification = hs.notify.new({
-        title = "Flowmodoro",
-        informativeText = "Break complete — ready for the next focus session.",
-    })
-    lastNotification:send()
-
-    local sound = hs.sound.getByName(breakSoundName)
-    if sound then
-        sound:play()
-    end
-end
-
-local function completeBreakIfDue()
-    local state = loadState()
-    if state.phase ~= "break" then
-        cancelBreakTimer()
-        return
-    end
-
-    local remaining = state.breakEndsAt - now()
-    if remaining > 0 then
-        cancelBreakTimer()
-        breakTimer = hs.timer.doAfter(remaining, completeBreakIfDue)
-        return
-    end
-
-    cancelBreakTimer()
-    saveState(idleState())
-    notifyBreakComplete()
-end
-
-local function restoreBreakTimer()
-    local state = loadState()
-    if state.phase ~= "break" then
-        cancelBreakTimer()
-        return
-    end
-
-    completeBreakIfDue()
-end
-
 local function elapsedSeconds(state, timestamp)
     local elapsed = math.max(0, tonumber(state.accumulatedSeconds) or 0)
     if state.phase == "running" then
@@ -228,15 +246,11 @@ paletteElements = function()
     local state = loadState()
     local phase = state.phase
     local displayTime = "0:00"
-    local statusColor = ui.colors.muted
 
     if phase == "running" then
         displayTime = formatDuration(elapsedSeconds(state, timestamp))
-        statusColor = ui.colors.success
     elseif phase == "paused" then
         displayTime = formatDuration(state.accumulatedSeconds)
-    elseif phase == "break" then
-        displayTime = formatDuration(math.max(0, state.breakEndsAt - timestamp))
     end
 
     local elements = {
@@ -249,35 +263,7 @@ paletteElements = function()
         },
         {
             type = "text",
-            frame = { x = ui.outerPadding, y = 14, w = 250, h = 30 },
-            text = "Flowmodoro",
-            textColor = ui.colors.primary,
-            textFont = ui.font,
-            textSize = ui.sizes.title,
-        },
-        {
-            type = "text",
-            frame = { x = 270, y = 17, w = paletteWidth - 270 - ui.outerPadding, h = 22 },
-            text = phase:upper(),
-            textAlignment = "right",
-            textColor = statusColor,
-            textFont = ui.font,
-            textSize = ui.sizes.section,
-        },
-        {
-            type = "rectangle",
-            frame = {
-                x = ui.outerPadding,
-                y = 44,
-                w = paletteWidth - ui.outerPadding * 2,
-                h = 1,
-            },
-            action = "fill",
-            fillColor = ui.colors.divider,
-        },
-        {
-            type = "text",
-            frame = { x = ui.outerPadding, y = 57, w = paletteWidth - ui.outerPadding * 2, h = 46 },
+            frame = { x = ui.outerPadding, y = 14, w = paletteWidth - ui.outerPadding * 2, h = 46 },
             text = displayTime,
             textAlignment = "center",
             textColor = ui.colors.secondary,
@@ -287,10 +273,12 @@ paletteElements = function()
     }
 
     local rows = {
-        { "j", "Start / Resume", 116 },
-        { "k", "Pause", 144 },
-        { "l", "Break", 172 },
-        { ";", "Reset", 200 },
+        { "j", "Start / Resume", 73 },
+        { "k", "Pause", 101 },
+        { "l", "Break", 129 },
+        { ";", "Reset", 157 },
+        { "b", "Toggle Background Sounds", 185 },
+        { "s", "Switch Background Sound", 213 },
     }
 
     local textStyle = { font = ui.font, size = ui.sizes.body }
@@ -340,11 +328,6 @@ local function startStopwatch()
         return
     end
 
-    if state.phase == "break" then
-        cancelBreakTimer()
-        state = idleState()
-    end
-
     local accumulated = state.phase == "paused" and state.accumulatedSeconds or 0
     saveState({
         phase = "running",
@@ -352,7 +335,9 @@ local function startStopwatch()
         startedAt = timestamp,
     })
 
+    startBlockedAppWatcher()
     blockApplicationDuringWork(hs.application.frontmostApplication())
+    sendCommand("start")
 
     show(accumulated > 0 and "Flowmodoro resumed" or "Flowmodoro started")
 end
@@ -371,6 +356,7 @@ local function pauseStopwatch()
         phase = "paused",
         accumulatedSeconds = elapsed,
     })
+    stopBlockedAppWatcher()
     show("Flowmodoro paused • " .. formatDuration(elapsed))
 end
 
@@ -379,31 +365,33 @@ local function stopStopwatch()
     local state = loadState()
 
     if state.phase ~= "running" and state.phase ~= "paused" then
-        show(state.phase == "break" and "Flowmodoro break already active" or "Flowmodoro stopped • no work time")
+        sendCommand(0)
+        show("Flowmodoro stopped • no work time")
         return
     end
 
     local elapsed = elapsedSeconds(state, timestamp)
-    local breakMinutes = math.floor((elapsed / 300) + 0.5)
+    stopBlockedAppWatcher()
+    saveState(idleState())
 
-    cancelBreakTimer()
-    if breakMinutes < 1 then
-        saveState(idleState())
-        show("Flowmodoro stopped • " .. formatDuration(elapsed) .. " • no break")
+    if elapsed <= minimumSessionSeconds then
+        sendCommand(0)
+        show("Flowmodoro discarded • " .. formatDuration(elapsed)
+            .. " • must exceed " .. formatDuration(minimumSessionSeconds))
         return
     end
 
-    saveState({
-        phase = "break",
-        breakEndsAt = timestamp + (breakMinutes * 60),
-    })
-    restoreBreakTimer()
-    show(string.format("Flowmodoro stopped • %s • %d min break", formatDuration(elapsed), breakMinutes))
+    local focusedSeconds = math.floor(elapsed + 0.5)
+    local breakSeconds = focusedSeconds / 5
+    sendCommand(focusedSeconds)
+    show(string.format("Flowmodoro stopped • %s • %s break",
+        formatDuration(elapsed), formatDuration(breakSeconds)))
 end
 
 local function resetFlowmodoro()
-    cancelBreakTimer()
+    stopBlockedAppWatcher()
     saveState(idleState())
+    sendCommand(0)
     show("Flowmodoro reset")
 end
 
@@ -412,11 +400,14 @@ function M.setup(hyper, alertModule, uiModule)
     ui = uiModule
 
     blockedAppWatcher = hs.application.watcher.new(function(_, eventType, application)
-        if eventType == hs.application.watcher.activated then
+        if eventType == hs.application.watcher.launched
+            or eventType == hs.application.watcher.activated then
             blockApplicationDuringWork(application)
+        elseif eventType == hs.application.watcher.terminated and application then
+            local pid = application:pid()
+            if pid then notifiedBlockedAppPIDs[pid] = nil end
         end
     end)
-    blockedAppWatcher:start()
 
     palette = hs.canvas.new({ x = 0, y = 0, w = paletteWidth, h = paletteHeight })
         :level("floating")
@@ -438,12 +429,17 @@ function M.setup(hyper, alertModule, uiModule)
     paletteAction("k", pauseStopwatch)
     paletteAction("l", stopStopwatch)
     paletteAction(";", resetFlowmodoro)
+    paletteAction("b", toggleBackgroundSounds)
+    paletteAction("s", switchBackgroundSound)
     table.insert(paletteHotkeys, hs.hotkey.new({}, "escape", function()
         if paletteVisible then hidePalette() end
     end))
 
-    restoreBreakTimer()
-    blockApplicationDuringWork(hs.application.frontmostApplication())
+    if loadState().phase == "running" then
+        startBlockedAppWatcher()
+        blockApplicationDuringWork(hs.application.frontmostApplication())
+        sendCommand("start")
+    end
 
     -- Expose a small console API for inspection without leaking internal state.
     M.toggle = togglePalette

@@ -11,6 +11,7 @@ end
 function M.setup(hyper, alertModule, appModule)
     alerts = alertModule
     local pinMode = false
+    local windowGap = 1
 
     -- These apps use half the screen during a full reset; other apps maximize.
     local restoreLeftHalfBundleIDs = {
@@ -71,23 +72,32 @@ function M.setup(hyper, alertModule, appModule)
     local function setWindowFrame(win, x, w, anchorRightEdge, screen)
         if not win then return end
 
-        -- Pixel rounding avoids gaps. Some apps enforce minimum widths, so a
-        -- corrective pass preserves the requested right edge when necessary.
+        -- Keep screen edges flush and put the full gap on the trailing edge of
+        -- tiles that end inside the screen. This makes a shared boundary 1px,
+        -- rather than insetting both adjacent windows and creating a 2px gap.
+        -- Some apps enforce minimum widths, so a corrective pass preserves the
+        -- requested right edge when necessary.
         local sf = (screen or win:screen()):frame()
+        local screenRightEdge = sf.x + sf.w
+        local rightEdge
         if anchorRightEdge then
-            local rightEdge = math.floor(x + w + 0.5)
+            rightEdge = math.floor(x + w + 0.5)
             w = math.ceil(w)
             x = rightEdge - w
         else
             x = math.floor(x + 0.5)
             w = math.floor(w + 0.5)
+            rightEdge = x + w
         end
+        if rightEdge < screenRightEdge then
+            rightEdge = rightEdge - windowGap
+        end
+        w = math.max(1, rightEdge - x)
 
         win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h), 0)
 
         if anchorRightEdge then
             local actual = win:frame()
-            local rightEdge = x + w
             if math.abs((actual.x + actual.w) - rightEdge) > 1 then
                 win:setFrame(hs.geometry.rect(rightEdge - actual.w, sf.y, actual.w, sf.h), 0)
             end
@@ -98,11 +108,26 @@ function M.setup(hyper, alertModule, appModule)
         if not win then return end
 
         local f = win:frame()
+        local sf = win:screen():frame()
+        local screenBottomEdge = sf.y + sf.h
+        local bottomEdge
+        if anchorBottomEdge then
+            bottomEdge = math.floor(y + h + 0.5)
+            h = math.ceil(h)
+            y = bottomEdge - h
+        else
+            y = math.floor(y + 0.5)
+            h = math.floor(h + 0.5)
+            bottomEdge = y + h
+        end
+        if bottomEdge < screenBottomEdge then
+            bottomEdge = bottomEdge - windowGap
+        end
+        h = math.max(1, bottomEdge - y)
         win:setFrame(hs.geometry.rect(f.x, y, f.w, h), 0)
 
         if anchorBottomEdge then
             local actual = win:frame()
-            local bottomEdge = y + h
             if math.abs((actual.y + actual.h) - bottomEdge) > 1 then
                 win:setFrame(hs.geometry.rect(actual.x, bottomEdge - actual.h, actual.w, actual.h), 0)
             end

@@ -1,13 +1,9 @@
 local M = {}
 
 local caffeinateWatcher = nil
-local f19EventTap = nil
 local ui = nil
 
-local holdDelay = 1.2
 local cheatsheet = nil
-local holdTimer = nil
-local f19Held = false
 
 local function bindingID(modifiers, key)
     local normalizedModifiers = {}
@@ -49,13 +45,6 @@ end
 local function hideCheatsheet()
     if cheatsheet then
         cheatsheet:hide()
-    end
-end
-
-local function stopHoldTimer()
-    if holdTimer then
-        holdTimer:stop()
-        holdTimer = nil
     end
 end
 
@@ -226,13 +215,28 @@ local function showCheatsheet(bindings)
     local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
     local screenFrame = screen:frame()
     local columnCount = #items > 20 and 3 or 2
-    local columns, columnHeights = layoutColumns(items, columnCount)
-    local maxRows = math.max(table.unpack(columnHeights))
+    local columns = layoutColumns(items, columnCount)
     local outerPadding = ui.outerPadding
     local gutter = ui.gutter
+    local contentTop = 22
+    local contentBottom = contentTop
+    for _, column in ipairs(columns) do
+        local cursor = contentTop
+        local columnBottom = contentTop
+        for _, item in ipairs(column) do
+            if item.isHeader then
+                columnBottom = cursor + 22
+                cursor = cursor + 30
+            else
+                columnBottom = cursor + 24
+                cursor = cursor + 28
+            end
+        end
+        contentBottom = math.max(contentBottom, columnBottom)
+    end
     local width = math.min(screenFrame.w - 80,
         columnCount * 294 + outerPadding * 2 + gutter * (columnCount - 1))
-    local height = math.min(screenFrame.h - 80, math.ceil(maxRows * 28) + 62)
+    local height = math.min(screenFrame.h - 80, contentBottom + 12)
     local frame = {
         x = screenFrame.x + (screenFrame.w - width) / 2,
         y = screenFrame.y + (screenFrame.h - height) / 2,
@@ -254,20 +258,12 @@ local function showCheatsheet(bindings)
             fillColor = ui.colors.surface,
             roundedRectRadii = { xRadius = ui.radius, yRadius = ui.radius },
         },
-        {
-            type = "text",
-            frame = { x = outerPadding, y = 14, w = width - outerPadding * 2, h = 30 },
-            text = "Cheatsheet",
-            textColor = ui.colors.primary,
-            textFont = ui.font,
-            textSize = ui.sizes.title,
-        },
     }
 
     local columnWidth = (width - outerPadding * 2 - gutter * (columnCount - 1)) / columnCount
     for columnIndex, column in ipairs(columns) do
         local x = outerPadding + (columnIndex - 1) * (columnWidth + gutter)
-        local y = 50
+        local y = contentTop
         for _, item in ipairs(column) do
             if item.isHeader then
                 table.insert(elements, {
@@ -318,19 +314,8 @@ function M.setup(uiModule)
     local bindings = {}
     local hyper = {}
 
-    local function restartHoldTimer()
-        stopHoldTimer()
-        if not f19Held then return end
-
-        holdTimer = hs.timer.doAfter(holdDelay, function()
-            holdTimer = nil
-            if f19Held then showCheatsheet(bindings) end
-        end)
-    end
-
     local function actionWasPerformed()
         hideCheatsheet()
-        restartHoldTimer()
     end
 
     function hyper:bind(modifiers, key, metadata, pressedFn, releasedFn, repeatFn)
@@ -362,32 +347,22 @@ function M.setup(uiModule)
     end
 
     local function pressF19()
-        if f19Held then return end
-        f19Held = true
         hideCheatsheet()
         modal:enter()
-        restartHoldTimer()
     end
 
     local function releaseF19()
-        f19Held = false
-        stopHoldTimer()
         hideCheatsheet()
         modal:exit()
     end
 
-    local eventTypes = hs.eventtap.event.types
-    f19EventTap = hs.eventtap.new({ eventTypes.keyDown, eventTypes.keyUp }, function(event)
-        if event:getKeyCode() ~= hs.keycodes.map.f19 then return false end
-
-        if event:getType() == eventTypes.keyDown then
-            pressF19()
-        else
-            releaseF19()
-        end
-        return true
+    modal:bind({}, "tab", function()
+        showCheatsheet(bindings)
     end)
-    f19EventTap:start()
+
+    for _, modifiers in ipairs({ {}, { "shift" } }) do
+        hs.hotkey.bind(modifiers, "f19", pressF19, releaseF19)
+    end
 
     caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
         if event == hs.caffeinate.watcher.systemDidWake
@@ -404,7 +379,6 @@ function M.setup(uiModule)
     M.isCheatsheetVisible = function()
         return cheatsheet and cheatsheet:isShowing() or false
     end
-    M.isF19Held = function() return f19Held end
     hs.f19Cheatsheet = M
 
     return hyper
