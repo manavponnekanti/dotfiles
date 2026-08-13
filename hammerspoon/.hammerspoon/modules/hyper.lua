@@ -1,7 +1,6 @@
 local M = {}
 
 local caffeinateWatcher = nil
-local f19Tap = nil
 local ui = nil
 
 local cheatsheet = nil
@@ -314,14 +313,9 @@ function M.setup(uiModule)
     local modal = hs.hotkey.modal.new()
     local bindings = {}
     local hyper = {}
-    local f19GestureHandlers = nil
-    local f19Down = false
 
     local function actionWasPerformed()
         hideCheatsheet()
-        if f19GestureHandlers and f19GestureHandlers.cancel then
-            f19GestureHandlers.cancel()
-        end
     end
 
     function hyper:bind(modifiers, key, metadata, pressedFn, releasedFn, repeatFn)
@@ -352,27 +346,13 @@ function M.setup(uiModule)
         return unbound
     end
 
-    function hyper:setF19GestureHandlers(handlers)
-        f19GestureHandlers = handlers
-    end
-
     local function pressF19()
-        if f19Down then return end
-        f19Down = true
         hideCheatsheet()
-        if f19GestureHandlers and f19GestureHandlers.pressed then
-            f19GestureHandlers.pressed()
-        end
         modal:enter()
     end
 
     local function releaseF19()
-        if not f19Down then return end
-        f19Down = false
         hideCheatsheet()
-        if f19GestureHandlers and f19GestureHandlers.released then
-            f19GestureHandlers.released()
-        end
         modal:exit()
     end
 
@@ -380,32 +360,9 @@ function M.setup(uiModule)
         showCheatsheet(bindings)
     end)
 
-    -- Track the physical F19 key directly. A normal hotkey binding is released
-    -- when Shift changes, even though F19 is still held, which would interrupt
-    -- a move/resize gesture while switching modes.
-    local f19KeyCode = hs.keycodes.map.f19
-    f19Tap = hs.eventtap.new({
-        hs.eventtap.event.types.keyDown,
-        hs.eventtap.event.types.keyUp,
-    }, function(event)
-        if event:getKeyCode() ~= f19KeyCode then return false end
-
-        if event:getType() == hs.eventtap.event.types.keyDown then
-            local isRepeat = event:getProperty(
-                hs.eventtap.event.properties.keyboardEventAutorepeat) ~= 0
-            -- If macOS ever dropped the previous key-up, a fresh physical
-            -- press repairs the stale modal state instead of requiring an
-            -- extra press solely to unlock it.
-            if f19Down and not isRepeat then
-                releaseF19()
-            end
-            pressF19()
-        else
-            releaseF19()
-        end
-        return true
-    end)
-    f19Tap:start()
+    for _, modifiers in ipairs({ {}, { "shift" } }) do
+        hs.hotkey.bind(modifiers, "f19", pressF19, releaseF19)
+    end
 
     caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
         if event == hs.caffeinate.watcher.systemDidWake

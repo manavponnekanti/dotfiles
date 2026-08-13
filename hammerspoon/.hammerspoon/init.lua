@@ -10,8 +10,7 @@ local ui = loadModule("ui")
 local alerts = loadModule("alerts")
 local hyperModule = loadModule("hyper")
 local apps = loadModule("apps")
--- local windows = loadModule("windows") -- Replaced by ad-hoc F19 gestures.
-local swiftshift = loadModule("swiftshift")
+local windows = loadModule("windows")
 local airpods = loadModule("airpods")
 local deeplinks = loadModule("deeplinks")
 local passwords = loadModule("passwords")
@@ -23,8 +22,7 @@ local hyper = hyperModule.setup(ui)
 
 -- Command modules claim their keys before apps derives its assignable keys.
 -- Add future shortcut-owning modules above apps.setup for automatic exclusion.
--- windows.setup(hyper, alerts, apps)
-swiftshift.setup(hyper)
+windows.setup(hyper, alerts, apps)
 airpods.setup(hyper, alerts)
 deeplinks.setup(hyper)
 passwords.setup(hyper, alerts)

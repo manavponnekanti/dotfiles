@@ -1,4 +1,5 @@
 tap "homebrew/autoupdate"
+brew "blueutil"
 brew "entr"
 brew "fzf"
 brew "gh"

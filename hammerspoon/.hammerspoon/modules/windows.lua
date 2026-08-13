@@ -102,36 +102,6 @@ function M.setup(hyper, alertModule, appModule)
         end
     end
 
-    local function setWindowVerticalFrame(win, y, h, anchorBottomEdge)
-        if not win then return end
-
-        local f = win:frame()
-        local sf = win:screen():frame()
-        local screenBottomEdge = sf.y + sf.h
-        local bottomEdge
-        if anchorBottomEdge then
-            bottomEdge = math.floor(y + h + 0.5)
-            h = math.ceil(h)
-            y = bottomEdge - h
-        else
-            y = math.floor(y + 0.5)
-            h = math.floor(h + 0.5)
-            bottomEdge = y + h
-        end
-        if bottomEdge < screenBottomEdge then
-            bottomEdge = bottomEdge - windowGap
-        end
-        h = math.max(1, bottomEdge - y)
-        win:setFrame(hs.geometry.rect(f.x, y, f.w, h), 0)
-
-        if anchorBottomEdge then
-            local actual = win:frame()
-            if math.abs((actual.y + actual.h) - bottomEdge) > 1 then
-                win:setFrame(hs.geometry.rect(actual.x, bottomEdge - actual.h, actual.w, actual.h), 0)
-            end
-        end
-    end
-
     local function moveWindowToRightQuarter(win)
         if not win then return end
 
@@ -176,11 +146,33 @@ function M.setup(hyper, alertModule, appModule)
         local sf = win:screen():frame()
         local right = horizontalSide == "right"
         local bottom = verticalSide == "bottom"
-        local x = right and (sf.x + (sf.w * 0.5)) or sf.x
-        local y = bottom and (sf.y + (sf.h * 0.5)) or sf.y
+        local screenRightEdge = sf.x + sf.w
+        local screenBottomEdge = sf.y + sf.h
+        local rightEdge = right and screenRightEdge
+            or math.floor(sf.x + sf.w * 0.5 + 0.5) - windowGap
+        local bottomEdge = bottom and screenBottomEdge
+            or math.floor(sf.y + sf.h * 0.5 + 0.5) - windowGap
+        local x = right and (screenRightEdge - math.ceil(sf.w * 0.5)) or sf.x
+        local y = bottom and (screenBottomEdge - math.ceil(sf.h * 0.5)) or sf.y
 
-        setWindowFrame(win, x, sf.w * 0.5, right)
-        setWindowVerticalFrame(win, y, sf.h * 0.5, bottom)
+        -- Apply both axes together so macOS never renders a full-height half
+        -- before receiving the vertical half of the quarter-tile operation.
+        win:setFrame(hs.geometry.rect(
+            x, y, math.max(1, rightEdge - x), math.max(1, bottomEdge - y)), 0)
+
+        -- Apps with minimum dimensions may enlarge the requested frame. Keep
+        -- right and bottom tiles anchored without issuing separate corrections
+        -- for each axis.
+        if right or bottom then
+            local actual = win:frame()
+            local correctedX = right and (rightEdge - actual.w) or actual.x
+            local correctedY = bottom and (bottomEdge - actual.h) or actual.y
+            if math.abs(correctedX - actual.x) > 1
+                or math.abs(correctedY - actual.y) > 1 then
+                win:setFrame(hs.geometry.rect(
+                    correctedX, correctedY, actual.w, actual.h), 0)
+            end
+        end
     end
 
     local function maximizeWindows(windows)
