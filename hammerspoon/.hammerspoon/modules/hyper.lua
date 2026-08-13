@@ -1,6 +1,7 @@
 local M = {}
 
 local caffeinateWatcher = nil
+local f19Tap = nil
 local ui = nil
 
 local cheatsheet = nil
@@ -216,9 +217,9 @@ local function showCheatsheet(bindings)
     local screenFrame = screen:frame()
     local columnCount = #items > 20 and 3 or 2
     local columns = layoutColumns(items, columnCount)
-    local outerPadding = ui.outerPadding
+    local outerPadding = ui.outerPadding + 8
     local gutter = ui.gutter
-    local contentTop = 22
+    local contentTop = 28
     local contentBottom = contentTop
     for _, column in ipairs(columns) do
         local cursor = contentTop
@@ -235,8 +236,8 @@ local function showCheatsheet(bindings)
         contentBottom = math.max(contentBottom, columnBottom)
     end
     local width = math.min(screenFrame.w - 80,
-        columnCount * 294 + outerPadding * 2 + gutter * (columnCount - 1))
-    local height = math.min(screenFrame.h - 80, contentBottom + 12)
+        columnCount * 310 + outerPadding * 2 + gutter * (columnCount - 1))
+    local height = math.min(screenFrame.h - 80, contentBottom + 20)
     local frame = {
         x = screenFrame.x + (screenFrame.w - width) / 2,
         y = screenFrame.y + (screenFrame.h - height) / 2,
@@ -313,9 +314,14 @@ function M.setup(uiModule)
     local modal = hs.hotkey.modal.new()
     local bindings = {}
     local hyper = {}
+    local f19GestureHandlers = nil
+    local f19Down = false
 
     local function actionWasPerformed()
         hideCheatsheet()
+        if f19GestureHandlers and f19GestureHandlers.cancel then
+            f19GestureHandlers.cancel()
+        end
     end
 
     function hyper:bind(modifiers, key, metadata, pressedFn, releasedFn, repeatFn)
@@ -346,13 +352,27 @@ function M.setup(uiModule)
         return unbound
     end
 
+    function hyper:setF19GestureHandlers(handlers)
+        f19GestureHandlers = handlers
+    end
+
     local function pressF19()
+        if f19Down then return end
+        f19Down = true
         hideCheatsheet()
+        if f19GestureHandlers and f19GestureHandlers.pressed then
+            f19GestureHandlers.pressed()
+        end
         modal:enter()
     end
 
     local function releaseF19()
+        if not f19Down then return end
+        f19Down = false
         hideCheatsheet()
+        if f19GestureHandlers and f19GestureHandlers.released then
+            f19GestureHandlers.released()
+        end
         modal:exit()
     end
 
@@ -360,9 +380,32 @@ function M.setup(uiModule)
         showCheatsheet(bindings)
     end)
 
-    for _, modifiers in ipairs({ {}, { "shift" } }) do
-        hs.hotkey.bind(modifiers, "f19", pressF19, releaseF19)
-    end
+    -- Track the physical F19 key directly. A normal hotkey binding is released
+    -- when Shift changes, even though F19 is still held, which would interrupt
+    -- a move/resize gesture while switching modes.
+    local f19KeyCode = hs.keycodes.map.f19
+    f19Tap = hs.eventtap.new({
+        hs.eventtap.event.types.keyDown,
+        hs.eventtap.event.types.keyUp,
+    }, function(event)
+        if event:getKeyCode() ~= f19KeyCode then return false end
+
+        if event:getType() == hs.eventtap.event.types.keyDown then
+            local isRepeat = event:getProperty(
+                hs.eventtap.event.properties.keyboardEventAutorepeat) ~= 0
+            -- If macOS ever dropped the previous key-up, a fresh physical
+            -- press repairs the stale modal state instead of requiring an
+            -- extra press solely to unlock it.
+            if f19Down and not isRepeat then
+                releaseF19()
+            end
+            pressF19()
+        else
+            releaseF19()
+        end
+        return true
+    end)
+    f19Tap:start()
 
     caffeinateWatcher = hs.caffeinate.watcher.new(function(event)
         if event == hs.caffeinate.watcher.systemDidWake

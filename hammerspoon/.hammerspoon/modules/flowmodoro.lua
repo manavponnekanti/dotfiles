@@ -1,7 +1,7 @@
 local M = {}
 
 local settingsKey = "flowmodoro.state"
-local shortcutName = "Flowmodoro"
+local shortcutName = "Flowmodoro-hs"
 local minimumSessionSeconds = 10 * 60
 
 local alerts = nil
@@ -30,8 +30,8 @@ local blockedAppNames = {
     whatsapp = true,
 }
 
-local paletteWidth = 420
-local paletteHeight = 249
+local paletteWidth = 340
+local paletteHeight = 193
 
 local function now()
     return os.time()
@@ -40,7 +40,6 @@ end
 local function idleState()
     return {
         phase = "idle",
-        accumulatedSeconds = 0,
     }
 end
 
@@ -58,13 +57,10 @@ local function loadState()
         if type(state.startedAt) ~= "number" then
             return idleState()
         end
-        state.accumulatedSeconds = math.max(0, tonumber(state.accumulatedSeconds) or 0)
-        return state
-    end
-
-    if state.phase == "paused" then
-        state.accumulatedSeconds = math.max(0, tonumber(state.accumulatedSeconds) or 0)
-        return state
+        return {
+            phase = "running",
+            startedAt = state.startedAt,
+        }
     end
 
     return idleState()
@@ -227,11 +223,7 @@ local function togglePalette()
 end
 
 local function elapsedSeconds(state, timestamp)
-    local elapsed = math.max(0, tonumber(state.accumulatedSeconds) or 0)
-    if state.phase == "running" then
-        elapsed = elapsed + math.max(0, timestamp - state.startedAt)
-    end
-    return elapsed
+    return math.max(0, timestamp - state.startedAt)
 end
 
 local function formatDuration(seconds)
@@ -249,8 +241,6 @@ paletteElements = function()
 
     if phase == "running" then
         displayTime = formatDuration(elapsedSeconds(state, timestamp))
-    elseif phase == "paused" then
-        displayTime = formatDuration(state.accumulatedSeconds)
     end
 
     local elements = {
@@ -273,12 +263,10 @@ paletteElements = function()
     }
 
     local rows = {
-        { "j", "Start / Resume", 73 },
-        { "k", "Pause", 101 },
-        { "l", "Break", 129 },
-        { ";", "Reset", 157 },
-        { "b", "Toggle Background Sounds", 185 },
-        { "s", "Switch Background Sound", 213 },
+        { "j", "Start", 73 },
+        { "k", "Stop", 101 },
+        { "b", "Toggle Background Sounds", 129 },
+        { "s", "Switch Background Sound", 157 },
     }
 
     local textStyle = { font = ui.font, size = ui.sizes.body }
@@ -328,10 +316,8 @@ local function startStopwatch()
         return
     end
 
-    local accumulated = state.phase == "paused" and state.accumulatedSeconds or 0
     saveState({
         phase = "running",
-        accumulatedSeconds = accumulated,
         startedAt = timestamp,
     })
 
@@ -339,32 +325,14 @@ local function startStopwatch()
     blockApplicationDuringWork(hs.application.frontmostApplication())
     sendCommand("start")
 
-    show(accumulated > 0 and "Flowmodoro resumed" or "Flowmodoro started")
-end
-
-local function pauseStopwatch()
-    local timestamp = now()
-    local state = loadState()
-
-    if state.phase ~= "running" then
-        show(state.phase == "paused" and "Flowmodoro already paused" or "Flowmodoro is not running")
-        return
-    end
-
-    local elapsed = elapsedSeconds(state, timestamp)
-    saveState({
-        phase = "paused",
-        accumulatedSeconds = elapsed,
-    })
-    stopBlockedAppWatcher()
-    show("Flowmodoro paused • " .. formatDuration(elapsed))
+    show("Flowmodoro started")
 end
 
 local function stopStopwatch()
     local timestamp = now()
     local state = loadState()
 
-    if state.phase ~= "running" and state.phase ~= "paused" then
+    if state.phase ~= "running" then
         sendCommand(0)
         show("Flowmodoro stopped • no work time")
         return
@@ -374,10 +342,10 @@ local function stopStopwatch()
     stopBlockedAppWatcher()
     saveState(idleState())
 
-    if elapsed <= minimumSessionSeconds then
+    if elapsed < minimumSessionSeconds then
         sendCommand(0)
         show("Flowmodoro discarded • " .. formatDuration(elapsed)
-            .. " • must exceed " .. formatDuration(minimumSessionSeconds))
+            .. " • must reach " .. formatDuration(minimumSessionSeconds))
         return
     end
 
@@ -386,13 +354,6 @@ local function stopStopwatch()
     sendCommand(focusedSeconds)
     show(string.format("Flowmodoro stopped • %s • %s break",
         formatDuration(elapsed), formatDuration(breakSeconds)))
-end
-
-local function resetFlowmodoro()
-    stopBlockedAppWatcher()
-    saveState(idleState())
-    sendCommand(0)
-    show("Flowmodoro reset")
 end
 
 function M.setup(hyper, alertModule, uiModule)
@@ -426,9 +387,7 @@ function M.setup(hyper, alertModule, uiModule)
         end))
     end
     paletteAction("j", startStopwatch)
-    paletteAction("k", pauseStopwatch)
-    paletteAction("l", stopStopwatch)
-    paletteAction(";", resetFlowmodoro)
+    paletteAction("k", stopStopwatch)
     paletteAction("b", toggleBackgroundSounds)
     paletteAction("s", switchBackgroundSound)
     table.insert(paletteHotkeys, hs.hotkey.new({}, "escape", function()

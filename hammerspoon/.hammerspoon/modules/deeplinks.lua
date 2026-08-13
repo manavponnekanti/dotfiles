@@ -34,6 +34,13 @@ function M.setup(hyper)
         hs.urlevent.openURL("shottr://show")
     end)
 
+    hyper:bind({}, "5", {
+        group = "Shottr",
+        description = "Capture scrolling area",
+    }, function()
+        hs.urlevent.openURL("shottr://grab/scrolling")
+    end)
+
 end
 
 return M

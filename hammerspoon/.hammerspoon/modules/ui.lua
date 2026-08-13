@@ -1,6 +1,6 @@
 local M = {
     font = "Menlo",
-    radius = 0,
+    radius = 12,
     outerPadding = 16,
     gutter = 24,
     colors = {

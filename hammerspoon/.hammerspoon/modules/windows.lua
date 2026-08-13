@@ -170,17 +170,17 @@ function M.setup(hyper, alertModule, appModule)
         end
     end
 
-    local function moveWindowVertically(win, side)
+    local function moveWindowToQuarter(win, horizontalSide, verticalSide)
         if not win then return end
 
         local sf = win:screen():frame()
-        local topEdge = sf.y
+        local right = horizontalSide == "right"
+        local bottom = verticalSide == "bottom"
+        local x = right and (sf.x + (sf.w * 0.5)) or sf.x
+        local y = bottom and (sf.y + (sf.h * 0.5)) or sf.y
 
-        if side == "bottom" then
-            setWindowVerticalFrame(win, topEdge + (sf.h * 0.5), sf.h * 0.5, true)
-        else
-            setWindowVerticalFrame(win, topEdge, sf.h * 0.5)
-        end
+        setWindowFrame(win, x, sf.w * 0.5, right)
+        setWindowVerticalFrame(win, y, sf.h * 0.5, bottom)
     end
 
     local function maximizeWindows(windows)
@@ -360,6 +360,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({}, "j", {
         group = "Windows",
         description = "Left half + choose right",
+        order = 10,
     }, function()
         tileAndChoose("left", 0.5, "left-half")
     end)
@@ -367,6 +368,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({ "shift" }, "j", {
         group = "Windows",
         description = "Left ⅔ + choose right",
+        order = 20,
     }, function()
         tileAndChoose("left", 2 / 3, "left-two-thirds")
     end)
@@ -374,27 +376,47 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({}, "k", {
         group = "Windows",
         description = "Maximize window",
+        order = 90,
     }, function()
         maximizeWindow(activeWindow())
     end)
 
-    hyper:bind({}, "return", {
+    hyper:bind({}, "[", {
         group = "Windows",
-        description = "Top half",
+        description = "Top-left quarter",
+        order = 50,
     }, function()
-        moveWindowVertically(activeWindow(), "top")
+        moveWindowToQuarter(activeWindow(), "left", "top")
     end)
 
-    hyper:bind({ "shift" }, "return", {
+    hyper:bind({}, "]", {
         group = "Windows",
-        description = "Bottom half",
+        description = "Top-right quarter",
+        order = 60,
     }, function()
-        moveWindowVertically(activeWindow(), "bottom")
+        moveWindowToQuarter(activeWindow(), "right", "top")
+    end)
+
+    hyper:bind({}, "'", {
+        group = "Windows",
+        description = "Bottom-left quarter",
+        order = 70,
+    }, function()
+        moveWindowToQuarter(activeWindow(), "left", "bottom")
+    end)
+
+    hyper:bind({}, "\\", {
+        group = "Windows",
+        description = "Bottom-right quarter",
+        order = 80,
+    }, function()
+        moveWindowToQuarter(activeWindow(), "right", "bottom")
     end)
 
     hyper:bind({}, "l", {
         group = "Windows",
         description = "Right half + choose left",
+        order = 30,
     }, function()
         tileAndChoose("right", 0.5, "right-half")
     end)
@@ -402,6 +424,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({ "shift" }, "l", {
         group = "Windows",
         description = "Right ⅓ + choose left",
+        order = 40,
     }, function()
         tileAndChoose("right", 1 / 3, "right-third")
     end)
@@ -409,6 +432,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({}, ";", {
         group = "Windows",
         description = "Restore layout / pin window",
+        order = 100,
     }, function()
         if pinMode then
             moveWindowToRightQuarter(activeWindow())
@@ -420,6 +444,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({}, "u", {
         group = "Windows",
         description = "Toggle pin mode",
+        order = 110,
     }, function()
         pinMode = not pinMode
         showAlert(pinMode and "Pin mode ON" or "Pin mode OFF")
@@ -433,6 +458,7 @@ function M.setup(hyper, alertModule, appModule)
     hyper:bind({}, "h", {
         group = "Windows",
         description = "Move to next display",
+        order = 120,
     }, function()
         local win = activeWindow()
         if not win then return end
