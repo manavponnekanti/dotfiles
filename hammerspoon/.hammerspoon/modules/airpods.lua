@@ -38,7 +38,7 @@ local function connectAirPods(alerts)
 end
 
 function M.setup(hyper, alertModule)
-    hyper:bind({ "shift" }, "b", {
+    hyper:bind({ "cmd" }, "b", {
         group = "Utilities",
         description = "Connect AirPods",
     }, function()

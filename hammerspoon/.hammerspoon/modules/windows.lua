@@ -64,31 +64,27 @@ function M.setup(hyper, alertModule, appModule)
 
     local function usableWidth(screenFrame)
         -- Pin mode reserves the rightmost quarter of the screen.
-        return pinMode and math.floor(screenFrame.w * 0.75) or screenFrame.w
+        return pinMode and math.floor(screenFrame.w * 0.75 + 0.5) or screenFrame.w
     end
 
     local function setWindowFrame(win, x, w, anchorRightEdge, screen)
         if not win then return end
 
-        -- Keep screen edges flush and put the full gap on the trailing edge of
-        -- tiles that end inside the screen. This makes a shared boundary 1px,
-        -- rather than insetting both adjacent windows and creating a 2px gap.
+        -- Keep screen edges flush and split the gap evenly across both windows
+        -- at an internal boundary. Each adjacent tile contributes 0.5px to the
+        -- shared 1px gap.
         -- Some apps enforce minimum widths, so a corrective pass preserves the
         -- requested right edge when necessary.
         local sf = (screen or win:screen()):frame()
         local screenRightEdge = sf.x + sf.w
-        local rightEdge
-        if anchorRightEdge then
-            rightEdge = math.floor(x + w + 0.5)
-            w = math.ceil(w)
-            x = rightEdge - w
-        else
-            x = math.floor(x + 0.5)
-            w = math.floor(w + 0.5)
-            rightEdge = x + w
+        local halfGap = windowGap / 2
+        local rightEdge = math.floor(x + w + 0.5)
+        x = math.floor(x + 0.5)
+        if x > sf.x then
+            x = x + halfGap
         end
         if rightEdge < screenRightEdge then
-            rightEdge = rightEdge - windowGap
+            rightEdge = rightEdge - halfGap
         end
         w = math.max(1, rightEdge - x)
 
@@ -148,12 +144,15 @@ function M.setup(hyper, alertModule, appModule)
         local bottom = verticalSide == "bottom"
         local screenRightEdge = sf.x + sf.w
         local screenBottomEdge = sf.y + sf.h
+        local halfGap = windowGap / 2
+        local horizontalBoundary = math.floor(sf.x + sf.w * 0.5 + 0.5)
+        local verticalBoundary = math.floor(sf.y + sf.h * 0.5 + 0.5)
         local rightEdge = right and screenRightEdge
-            or math.floor(sf.x + sf.w * 0.5 + 0.5) - windowGap
+            or horizontalBoundary - halfGap
         local bottomEdge = bottom and screenBottomEdge
-            or math.floor(sf.y + sf.h * 0.5 + 0.5) - windowGap
-        local x = right and (screenRightEdge - math.ceil(sf.w * 0.5)) or sf.x
-        local y = bottom and (screenBottomEdge - math.ceil(sf.h * 0.5)) or sf.y
+            or verticalBoundary - halfGap
+        local x = right and (horizontalBoundary + halfGap) or sf.x
+        local y = bottom and (verticalBoundary + halfGap) or sf.y
 
         -- Apply both axes together so macOS never renders a full-height half
         -- before receiving the vertical half of the quarter-tile operation.
@@ -197,7 +196,22 @@ function M.setup(hyper, alertModule, appModule)
         if not win then return end
 
         local screen = win:screen()
-        restoreWindows(restorableWindowsOnScreen(screen), screen)
+        local windows = restorableWindowsOnScreen(screen)
+        local activeWindowID = win:id()
+
+        -- Reset the window the user is looking at first so the command feels
+        -- immediate even when many hidden or minimized windows follow it.
+        if activeWindowID then
+            for index, candidate in ipairs(windows) do
+                if candidate:id() == activeWindowID then
+                    table.remove(windows, index)
+                    table.insert(windows, 1, candidate)
+                    break
+                end
+            end
+        end
+
+        restoreWindows(windows, screen)
     end
 
     local function moveWindow(win, direction, size, screen)
@@ -357,7 +371,7 @@ function M.setup(hyper, alertModule, appModule)
         tileAndChoose("left", 0.5, "left-half")
     end)
 
-    hyper:bind({ "shift" }, "j", {
+    hyper:bind({ "cmd" }, "j", {
         group = "Windows",
         description = "Left ⅔ + choose right",
         order = 20,
@@ -413,7 +427,7 @@ function M.setup(hyper, alertModule, appModule)
         tileAndChoose("right", 0.5, "right-half")
     end)
 
-    hyper:bind({ "shift" }, "l", {
+    hyper:bind({ "cmd" }, "l", {
         group = "Windows",
         description = "Right ⅓ + choose left",
         order = 40,

@@ -1,7 +1,7 @@
 local M = {}
 
 function M.setup(hyper)
-    hyper:bind({ "shift" }, "r", {
+    hyper:bind({ "cmd" }, "r", {
         group = "Utilities",
         description = "Reload Hammerspoon",
     }, hs.reload)
@@ -13,7 +13,7 @@ function M.setup(hyper)
         hs.urlevent.openURL("alfred://runtrigger/com.mbp.misc/browse-dl/")
     end)
 
-    hyper:bind({ "shift" }, "y", {
+    hyper:bind({ "cmd" }, "y", {
         group = "Alfred",
         description = "Browse Y3",
     }, function()

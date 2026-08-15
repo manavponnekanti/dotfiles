@@ -360,7 +360,7 @@ function M.setup(uiModule)
         showCheatsheet(bindings)
     end)
 
-    for _, modifiers in ipairs({ {}, { "shift" } }) do
+    for _, modifiers in ipairs({ {}, { "cmd" } }) do
         hs.hotkey.bind(modifiers, "f19", pressF19, releaseF19)
     end
 
