@@ -1,8 +1,5 @@
 local M = {}
 local alerts = nil
--- Windows installs this handler so normal app shortcuts can select an app
--- from the tiling chooser without duplicating the hotkey bindings.
-local shortcutHandler = nil
 
 local allAssignableKeys = {}
 for keyCode = string.byte("0"), string.byte("9") do
@@ -39,15 +36,29 @@ local function serializeBindings(bindings)
 end
 
 local function saveAppBindings(bindings)
-    local file, openErr = io.open(appBindingsPath, "w")
+    local temporaryPath = appBindingsPath .. ".tmp"
+    local file, openErr = io.open(temporaryPath, "w")
     if not file then
         return false, openErr
     end
 
     local ok, writeErr = file:write(serializeBindings(bindings))
-    file:close()
     if not ok then
+        file:close()
+        os.remove(temporaryPath)
         return false, writeErr
+    end
+
+    local closed, closeErr = file:close()
+    if not closed then
+        os.remove(temporaryPath)
+        return false, closeErr
+    end
+
+    local renamed, renameErr = os.rename(temporaryPath, appBindingsPath)
+    if not renamed then
+        os.remove(temporaryPath)
+        return false, renameErr
     end
 
     return true
@@ -63,8 +74,9 @@ local function loadAppBindings()
         showAlert("app_bindings.lua error")
         print("app_bindings.lua must return a table")
     else
-        showAlert(loaded:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
-        print(loaded)
+        local detail = tostring(loaded)
+        showAlert(detail:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
+        print(detail)
     end
     return {}
 end
@@ -81,29 +93,13 @@ local function toggleApp(bundleID)
     if app and app:isFrontmost() then
         app:hide()
     else
-        local sourceScreen = hs.mouse.getCurrentScreen()
-        if not hs.application.launchOrFocusByBundleID(bundleID) then return end
-
-        hs.timer.doAfter(0.1, function()
-            local focusedApp = hs.application.get(bundleID)
-            if not focusedApp then return end
-
-            local win = focusedApp:focusedWindow() or focusedApp:mainWindow()
-            local targetScreen = win and win:screen()
-            if not targetScreen or targetScreen == sourceScreen then return end
-
-            hs.mouse.absolutePosition(hs.geometry.rectMidPoint(win:frame()))
-        end)
+        hs.application.launchOrFocusByBundleID(bundleID)
     end
 end
 
 local function appName(bundleID)
     if not bundleID then return nil end
     return hs.application.nameForBundleID(bundleID) or bundleID
-end
-
-function M.setShortcutHandler(handler)
-    shortcutHandler = handler
 end
 
 function M.setup(hyper, alertModule)
@@ -183,10 +179,6 @@ function M.setup(hyper, alertModule)
             if assignMode then
                 exitAssignMode(false)
                 assignFrontmostApp(key)
-            -- The chooser gets first refusal; otherwise this remains a normal
-            -- launch/focus/hide app shortcut.
-            elseif shortcutHandler and shortcutHandler(key, appBindings[key]) then
-                return
             elseif appBindings[key] then
                 toggleApp(appBindings[key])
             end

@@ -1,6 +1,6 @@
 return {
     ["a"] = "com.googlecode.iterm2",
-    ["b"] = "com.brave.Browser",
+    ["b"] = "com.apple.Safari",
     ["c"] = "com.apple.iCal",
     ["d"] = "com.hnc.Discord",
     ["e"] = "com.apple.FaceTime",

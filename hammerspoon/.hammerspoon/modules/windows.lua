@@ -1,486 +1,233 @@
 local M = {}
-local alerts = nil
+local internalGap = 1
+local halfInternalGap = internalGap / 2
+local unitEpsilon = 1e-9
 
-local function showAlert(message, ...)
-    if alerts then
-        return alerts.show(message, ...)
-    end
-    return hs.alert.show(message, ...)
+local function defineTile(x, y, w, h)
+    return {
+        unit = hs.geometry.rect(x, y, w, h),
+        inset = {
+            left = x > unitEpsilon and halfInternalGap or 0,
+            top = y > unitEpsilon and halfInternalGap or 0,
+            right = x + w < 1 - unitEpsilon and halfInternalGap or 0,
+            bottom = y + h < 1 - unitEpsilon and halfInternalGap or 0,
+        },
+    }
 end
 
-function M.setup(hyper, alertModule, appModule)
-    alerts = alertModule
+local tiles = {
+    full = defineTile(0, 0, 1, 1),
+    leftHalf = defineTile(0, 0, 0.5, 1),
+    leftTwoThirds = defineTile(0, 0, 2 / 3, 1),
+    rightHalf = defineTile(0.5, 0, 0.5, 1),
+    rightThird = defineTile(2 / 3, 0, 1 / 3, 1),
+    topLeft = defineTile(0, 0, 0.5, 0.5),
+    topRight = defineTile(0.5, 0, 0.5, 0.5),
+    bottomLeft = defineTile(0, 0.5, 0.5, 0.5),
+    bottomRight = defineTile(0.5, 0.5, 0.5, 0.5),
+    mainWithPin = defineTile(0, 0, 0.75, 1),
+    pin = defineTile(0.75, 0, 0.25, 1),
+}
+
+-- These apps use half the screen during a layout reset; other apps maximize.
+local restoreLeftHalfBundleIDs = {
+    ["com.apple.MobileSMS"] = true,
+    ["ru.keepcoder.Telegram"] = true,
+    ["net.whatsapp.WhatsApp"] = true,
+    ["com.googlecode.iterm2"] = true,
+}
+
+local function activeWindow()
+    return hs.window.frontmostWindow()
+end
+
+local function isManagedWindow(win)
+    if win:isFullScreen() then return false end
+    if win:isStandard() then return true end
+
+    -- A few apps expose their main window as AXDialog.
+    local app = win:application()
+    local mainWindow = app and app:mainWindow()
+    return win:role() == "AXWindow"
+        and mainWindow
+        and win:id()
+        and mainWindow:id() == win:id()
+        or false
+end
+
+local function managedWindowsOnScreen(screen)
+    local windows = {}
+    for _, win in ipairs(hs.window.allWindows()) do
+        if win:screen() == screen and isManagedWindow(win) then
+            table.insert(windows, win)
+        end
+    end
+    return windows
+end
+
+local function restoreTile(win, pinMode)
+    local app = win:application()
+    local bundleID = app and app:bundleID()
+    if bundleID and restoreLeftHalfBundleIDs[bundleID] then
+        return tiles.leftHalf
+    end
+    return pinMode and tiles.mainWithPin or tiles.full
+end
+
+local function mainAreaTile(tileDefinition, pinMode)
+    if not pinMode then return tileDefinition end
+    local unit = tileDefinition.unit
+    return defineTile(unit.x * 0.75, unit.y, unit.w * 0.75, unit.h)
+end
+
+local function rounded(value)
+    return math.floor(value + 0.5)
+end
+
+local function tileFrame(screen, tileDefinition)
+    local frame = screen:fromUnitRect(tileDefinition.unit)
+    local inset = tileDefinition.inset
+    local x1 = rounded(frame.x1) + inset.left
+    local y1 = rounded(frame.y1) + inset.top
+    local x2 = rounded(frame.x2) - inset.right
+    local y2 = rounded(frame.y2) - inset.bottom
+
+    return hs.geometry.rect(x1, y1,
+        math.max(1, x2 - x1), math.max(1, y2 - y1))
+end
+
+local function tile(win, tileDefinition, screen, frame)
+    if not win then return end
+    screen = screen or win:screen()
+
+    win:setFrame(frame or tileFrame(screen, tileDefinition), 0)
+
+    -- Top-left-anchored tiles cannot overflow unless an app is wider or taller
+    -- than the screen itself, so avoid an unnecessary Accessibility read.
+    local unit = tileDefinition.unit
+    if unit.x <= unitEpsilon and unit.y <= unitEpsilon then return end
+
+    -- Keep the app's accepted size and correct only its position when a
+    -- minimum-size constraint pushes it beyond the target screen.
+    local actualFrame = win:frame()
+    local containedFrame = hs.geometry.copy(actualFrame):fit(screen:frame())
+    if containedFrame.x ~= actualFrame.x or containedFrame.y ~= actualFrame.y then
+        win:setTopLeft(containedFrame.topleft)
+    end
+end
+
+function M.setup(hyper, alertModule)
     local pinMode = false
-    local windowGap = 1
 
-    -- These apps use half the screen during a full reset; other apps maximize.
-    local restoreLeftHalfBundleIDs = {
-        ["com.apple.MobileSMS"] = true,
-        ["ru.keepcoder.Telegram"] = true,
-        ["net.whatsapp.WhatsApp"] = true,
-    }
-
-    local function activeWindow()
-        return hs.window.focusedWindow() or hs.window.frontmostWindow()
-    end
-
-    local function isRestorableWindow(win)
-        if win:isStandard() then return true end
-
-        -- Some apps expose their main window as AXDialog rather than
-        -- AXStandardWindow, so isStandard() alone incorrectly excludes it.
-        local app = win:application()
-        local mainWindow = app and app:mainWindow()
-        local windowID = win:id()
-        return win:role() == "AXWindow"
-            and mainWindow
-            and windowID
-            and mainWindow:id() == windowID
-            or false
-    end
-
-    local function standardWindowsOnScreen(screen)
-        -- Pin mode only rearranges windows that are currently visible.
-        local windows = {}
-        for _, win in ipairs(hs.window.visibleWindows()) do
-            if win:screen() == screen and win:isStandard() then
-                table.insert(windows, win)
-            end
-        end
-        return windows
-    end
-
-    local function restorableWindowsOnScreen(screen)
-        -- allWindows includes hidden and minimized windows. Reset their geometry
-        -- without changing whether their application is hidden.
-        local windows = {}
-        for _, win in ipairs(hs.window.allWindows()) do
-            if win:screen() == screen and isRestorableWindow(win) and not win:isFullScreen() then
-                table.insert(windows, win)
-            end
-        end
-        return windows
-    end
-
-    local function usableWidth(screenFrame)
-        -- Pin mode reserves the rightmost quarter of the screen.
-        return pinMode and math.floor(screenFrame.w * 0.75 + 0.5) or screenFrame.w
-    end
-
-    local function setWindowFrame(win, x, w, anchorRightEdge, screen)
+    local function restoreWindow(win, screen, frames)
         if not win then return end
-
-        -- Keep screen edges flush and split the gap evenly across both windows
-        -- at an internal boundary. Each adjacent tile contributes 0.5px to the
-        -- shared 1px gap.
-        -- Some apps enforce minimum widths, so a corrective pass preserves the
-        -- requested right edge when necessary.
-        local sf = (screen or win:screen()):frame()
-        local screenRightEdge = sf.x + sf.w
-        local halfGap = windowGap / 2
-        local rightEdge = math.floor(x + w + 0.5)
-        x = math.floor(x + 0.5)
-        if x > sf.x then
-            x = x + halfGap
-        end
-        if rightEdge < screenRightEdge then
-            rightEdge = rightEdge - halfGap
-        end
-        w = math.max(1, rightEdge - x)
-
-        win:setFrame(hs.geometry.rect(x, sf.y, w, sf.h), 0)
-
-        if anchorRightEdge then
-            local actual = win:frame()
-            if math.abs((actual.x + actual.w) - rightEdge) > 1 then
-                win:setFrame(hs.geometry.rect(rightEdge - actual.w, sf.y, actual.w, sf.h), 0)
-            end
-        end
+        local tileDefinition = restoreTile(win, pinMode)
+        local frame = tileDefinition == tiles.leftHalf and frames.leftHalf or frames.default
+        tile(win, tileDefinition, screen, frame)
     end
 
-    local function moveWindowToRightQuarter(win)
-        if not win then return end
-
-        local sf = win:screen():frame()
-        setWindowFrame(win, sf.x + (sf.w * 0.75), sf.w * 0.25, true)
-    end
-
-    local function moveWindowToLeftHalf(win, screen)
-        if not win then return end
-
-        screen = screen or win:screen()
-        local sf = screen:frame()
-        setWindowFrame(win, sf.x, sf.w * 0.5, false, screen)
-    end
-
-    local function shouldRestoreToLeftHalf(win)
-        local app = win and win:application()
-        if not app then return false end
-
-        local bundleID = app:bundleID()
-        return bundleID and restoreLeftHalfBundleIDs[bundleID] or false
-    end
-
-    local function maximizeWindow(win, screen)
-        if not win then return end
-        screen = screen or win:screen()
-        local sf = screen:frame()
-        setWindowFrame(win, sf.x, usableWidth(sf), false, screen)
-    end
-
-    local function restoreWindow(win, screen)
-        if shouldRestoreToLeftHalf(win) then
-            moveWindowToLeftHalf(win, screen)
-        else
-            maximizeWindow(win, screen)
-        end
-    end
-
-    local function moveWindowToQuarter(win, horizontalSide, verticalSide)
-        if not win then return end
-
-        local sf = win:screen():frame()
-        local right = horizontalSide == "right"
-        local bottom = verticalSide == "bottom"
-        local screenRightEdge = sf.x + sf.w
-        local screenBottomEdge = sf.y + sf.h
-        local halfGap = windowGap / 2
-        local horizontalBoundary = math.floor(sf.x + sf.w * 0.5 + 0.5)
-        local verticalBoundary = math.floor(sf.y + sf.h * 0.5 + 0.5)
-        local rightEdge = right and screenRightEdge
-            or horizontalBoundary - halfGap
-        local bottomEdge = bottom and screenBottomEdge
-            or verticalBoundary - halfGap
-        local x = right and (horizontalBoundary + halfGap) or sf.x
-        local y = bottom and (verticalBoundary + halfGap) or sf.y
-
-        -- Apply both axes together so macOS never renders a full-height half
-        -- before receiving the vertical half of the quarter-tile operation.
-        win:setFrame(hs.geometry.rect(
-            x, y, math.max(1, rightEdge - x), math.max(1, bottomEdge - y)), 0)
-
-        -- Apps with minimum dimensions may enlarge the requested frame. Keep
-        -- right and bottom tiles anchored without issuing separate corrections
-        -- for each axis.
-        if right or bottom then
-            local actual = win:frame()
-            local correctedX = right and (rightEdge - actual.w) or actual.x
-            local correctedY = bottom and (bottomEdge - actual.h) or actual.y
-            if math.abs(correctedX - actual.x) > 1
-                or math.abs(correctedY - actual.y) > 1 then
-                win:setFrame(hs.geometry.rect(
-                    correctedX, correctedY, actual.w, actual.h), 0)
-            end
-        end
-    end
-
-    local function maximizeWindows(windows)
-        for _, win in ipairs(windows) do
-            maximizeWindow(win)
-        end
-    end
-
-    local function maximizeAllOnScreen()
-        local screen = hs.screen.mainScreen()
-        maximizeWindows(standardWindowsOnScreen(screen))
-    end
-
-    local function restoreWindows(windows, screen)
-        for _, win in ipairs(windows) do
-            restoreWindow(win, screen)
-        end
-    end
-
-    local function restoreWindowsOnActiveScreen()
-        local win = activeWindow()
-        if not win then return end
-
-        local screen = win:screen()
-        local windows = restorableWindowsOnScreen(screen)
-        local activeWindowID = win:id()
-
-        -- Reset the window the user is looking at first so the command feels
-        -- immediate even when many hidden or minimized windows follow it.
-        if activeWindowID then
-            for index, candidate in ipairs(windows) do
-                if candidate:id() == activeWindowID then
-                    table.remove(windows, index)
-                    table.insert(windows, 1, candidate)
+    local function restoreScreen(screen, priorityWindow)
+        if not screen then return end
+        local windows = managedWindowsOnScreen(screen)
+        local frames = {
+            default = tileFrame(screen, pinMode and tiles.mainWithPin or tiles.full),
+            leftHalf = tileFrame(screen, tiles.leftHalf),
+        }
+        local priorityID = priorityWindow and priorityWindow:id()
+        if priorityID then
+            for index, win in ipairs(windows) do
+                if win:id() == priorityID then
+                    windows[1], windows[index] = windows[index], windows[1]
                     break
                 end
             end
         end
 
-        restoreWindows(windows, screen)
-    end
-
-    local function moveWindow(win, direction, size, screen)
-        if not win then return end
-        screen = screen or win:screen()
-        local sf = screen:frame()
-        local availW = usableWidth(sf)
-        local x = direction == "left" and sf.x or (sf.x + availW * (1 - size))
-        local w = availW * size
-        setWindowFrame(win, x, w, direction == "right", screen)
-    end
-
-    local pairing = nil
-    local chooser
-    -- App icons are immutable enough to cache until the next Hammerspoon reload.
-    -- false is cached too, preventing repeated lookups for missing icons.
-    local appIconCache = {}
-
-    local function appIcon(bundleID)
-        local cached = appIconCache[bundleID]
-        if cached ~= nil then
-            return cached or nil
-        end
-
-        local image = hs.image.imageFromAppBundle(bundleID)
-        appIconCache[bundleID] = image or false
-        return image
-    end
-
-    local function dismissChooser()
-        pairing = nil
-        if chooser and chooser:isVisible() then
-            chooser:hide()
+        for _, win in ipairs(windows) do
+            restoreWindow(win, screen, frames)
         end
     end
 
-    local function chooseOppositeApp(bundleID)
-        local currentPairing = pairing
-        if not currentPairing or not bundleID then return false end
-
-        dismissChooser()
-
-        -- Stack every standard window from the selected app in the opposite tile.
-        -- Excluding sourceID allows two windows of the same app to sit side by side.
-        local tiledWindows = {}
-        for _, app in ipairs(hs.application.applicationsForBundleID(bundleID)) do
-            app:unhide()
-
-            for _, win in ipairs(app:allWindows()) do
-                if win:isStandard() and win:id() ~= currentPairing.sourceID then
-                    moveWindow(win, currentPairing.oppositeDirection,
-                        currentPairing.oppositeSize, currentPairing.screen)
-                    table.insert(tiledWindows, win)
-                end
-            end
-        end
-
-        if #tiledWindows == 0 then
-            showAlert("No matching windows")
-            return false
-        end
-
-        tiledWindows[1]:focus()
-        return true
+    local function restoreActiveScreen()
+        local win = activeWindow()
+        if win then restoreScreen(win:screen(), win) end
     end
 
-    chooser = hs.chooser.new(function(choice)
-        if not choice then
-            if not chooser:isVisible() then
-                pairing = nil
-            end
-            return
-        end
-
-        if not chooseOppositeApp(choice.bundleID) then
-            pairing = nil
-        end
-    end)
-        :searchSubText(true)
-
-    local function applicationChoices()
-        -- Enumerate inexpensive application records rather than every window.
-        -- kind() == 1 limits the chooser to ordinary Dock applications.
-        local choices = {}
-        local seenBundleIDs = {}
-
-        for _, app in ipairs(hs.application.runningApplications()) do
-            local bundleID = app:bundleID()
-            local name = app:name()
-            if app:kind() == 1 and bundleID and name and not seenBundleIDs[bundleID] then
-                seenBundleIDs[bundleID] = true
-                table.insert(choices, {
-                    text = name,
-                    subText = bundleID,
-                    image = appIcon(bundleID),
-                    bundleID = bundleID,
-                })
-            end
-        end
-
-        table.sort(choices, function(a, b)
-            return a.text:lower() < b.text:lower()
-        end)
-        return choices
+    local function bind(modifiers, key, description, order, pressedFn)
+        hyper:bind(modifiers, key, {
+            group = "Windows",
+            description = description,
+            order = order,
+        }, pressedFn)
     end
 
-    local function showOppositeChooser(source, direction, size, command)
-        pairing = {
-            command = command,
-            sourceID = source:id(),
-            screen = source:screen(),
-            oppositeDirection = direction == "left" and "right" or "left",
-            oppositeSize = 1 - size,
-        }
-
-        local leftPercent = math.floor((direction == "left" and size or (1 - size)) * 100 + 0.5)
-        local rightPercent = 100 - leftPercent
-        chooser
-            :placeholderText(string.format("Choose the opposite app (%d/%d)", leftPercent, rightPercent))
-            :query("")
-            :choices(applicationChoices())
-            :show()
-    end
-
-    local function tileAndChoose(direction, size, command)
-        -- Repeating the active tiling command is a toggle that closes the chooser.
-        if pairing and chooser:isVisible() and pairing.command == command then
-            dismissChooser()
-            return
-        end
-
-        local source = pairing and hs.window.get(pairing.sourceID) or activeWindow()
-        dismissChooser()
-        if not source then return end
-
-        moveWindow(source, direction, size)
-        showOppositeChooser(source, direction, size, command)
-    end
-
-    if appModule then
-        -- While choosing, F19+<app key> selects that app instead of toggling it.
-        appModule.setShortcutHandler(function(_, bundleID)
-            if not pairing or not chooser:isVisible() then return false end
-            if not bundleID then return true end
-
-            chooseOppositeApp(bundleID)
-            return true
-        end)
-    end
-
-    -- Horizontal tiling commands open the complementary-app chooser.
-    hyper:bind({}, "j", {
-        group = "Windows",
-        description = "Left half + choose right",
-        order = 10,
-    }, function()
-        tileAndChoose("left", 0.5, "left-half")
+    bind({}, "j", "Left half", 10, function()
+        tile(activeWindow(), mainAreaTile(tiles.leftHalf, pinMode))
     end)
 
-    hyper:bind({ "cmd" }, "j", {
-        group = "Windows",
-        description = "Left ⅔ + choose right",
-        order = 20,
-    }, function()
-        tileAndChoose("left", 2 / 3, "left-two-thirds")
+    bind({ "cmd" }, "j", "Left ⅔", 20, function()
+        tile(activeWindow(), mainAreaTile(tiles.leftTwoThirds, pinMode))
     end)
 
-    hyper:bind({}, "k", {
-        group = "Windows",
-        description = "Maximize window",
-        order = 90,
-    }, function()
-        maximizeWindow(activeWindow())
+    bind({}, "l", "Right half", 30, function()
+        tile(activeWindow(), mainAreaTile(tiles.rightHalf, pinMode))
     end)
 
-    hyper:bind({}, "[", {
-        group = "Windows",
-        description = "Top-left quarter",
-        order = 50,
-    }, function()
-        moveWindowToQuarter(activeWindow(), "left", "top")
+    bind({ "cmd" }, "l", "Right ⅓", 40, function()
+        tile(activeWindow(), mainAreaTile(tiles.rightThird, pinMode))
     end)
 
-    hyper:bind({}, "]", {
-        group = "Windows",
-        description = "Top-right quarter",
-        order = 60,
-    }, function()
-        moveWindowToQuarter(activeWindow(), "right", "top")
+    bind({}, "[", "Top-left quarter", 50, function()
+        tile(activeWindow(), mainAreaTile(tiles.topLeft, pinMode))
     end)
 
-    hyper:bind({}, "'", {
-        group = "Windows",
-        description = "Bottom-left quarter",
-        order = 70,
-    }, function()
-        moveWindowToQuarter(activeWindow(), "left", "bottom")
+    bind({}, "]", "Top-right quarter", 60, function()
+        tile(activeWindow(), mainAreaTile(tiles.topRight, pinMode))
     end)
 
-    hyper:bind({}, "\\", {
-        group = "Windows",
-        description = "Bottom-right quarter",
-        order = 80,
-    }, function()
-        moveWindowToQuarter(activeWindow(), "right", "bottom")
+    bind({}, "'", "Bottom-left quarter", 70, function()
+        tile(activeWindow(), mainAreaTile(tiles.bottomLeft, pinMode))
     end)
 
-    hyper:bind({}, "l", {
-        group = "Windows",
-        description = "Right half + choose left",
-        order = 30,
-    }, function()
-        tileAndChoose("right", 0.5, "right-half")
+    bind({}, "\\", "Bottom-right quarter", 80, function()
+        tile(activeWindow(), mainAreaTile(tiles.bottomRight, pinMode))
     end)
 
-    hyper:bind({ "cmd" }, "l", {
-        group = "Windows",
-        description = "Right ⅓ + choose left",
-        order = 40,
-    }, function()
-        tileAndChoose("right", 1 / 3, "right-third")
-    end)
-
-    hyper:bind({}, ";", {
-        group = "Windows",
-        description = "Restore layout / pin window",
-        order = 100,
-    }, function()
-        if pinMode then
-            moveWindowToRightQuarter(activeWindow())
-        else
-            restoreWindowsOnActiveScreen()
-        end
-    end)
-
-    hyper:bind({}, "u", {
-        group = "Windows",
-        description = "Toggle pin mode",
-        order = 110,
-    }, function()
-        pinMode = not pinMode
-        showAlert(pinMode and "Pin mode ON" or "Pin mode OFF")
-        if pinMode then
-            maximizeAllOnScreen()
-        else
-            restoreWindowsOnActiveScreen()
-        end
-    end)
-
-    hyper:bind({}, "h", {
-        group = "Windows",
-        description = "Move to next display",
-        order = 120,
-    }, function()
+    bind({}, "k", "Maximize window", 90, function()
         local win = activeWindow()
         if not win then return end
+        if pinMode then
+            tile(win, tiles.mainWithPin)
+        else
+            win:maximize(0)
+        end
+    end)
+
+    bind({}, ";", "Restore layout / pin window", 100, function()
+        if pinMode then
+            tile(activeWindow(), tiles.pin)
+        else
+            restoreActiveScreen()
+        end
+    end)
+
+    bind({}, "u", "Toggle pin mode", 110, function()
+        local win = activeWindow()
+        local screen = win and win:screen() or hs.screen.mainScreen()
+        pinMode = not pinMode
+        alertModule.show(pinMode and "Pin mode ON" or "Pin mode OFF")
+        restoreScreen(screen, win)
+    end)
+
+    bind({}, "h", "Move to next display", 120, function()
+        local win = activeWindow()
+        if not win then return end
+
         local targetScreen = win:screen():next()
-        local windowID = win:id()
+        local tileDefinition = restoreTile(win, pinMode)
 
-        win:moveToScreen(targetScreen, false, true, 0)
-
-        hs.timer.doAfter(0.1, function()
-            local movedWindow = hs.window.get(windowID)
-            if not movedWindow then return end
-
-            restoreWindow(movedWindow, targetScreen)
-            local center = hs.geometry.rectMidPoint(movedWindow:frame())
-            hs.mouse.absolutePosition(center)
-        end)
+        tile(win, tileDefinition, targetScreen)
+        hs.mouse.absolutePosition(win:frame().center)
     end)
 end
 

@@ -7,9 +7,10 @@ local minimumSessionSeconds = 10 * 60
 local alerts = nil
 local ui = nil
 local palette = nil
+local paletteModal = nil
 local paletteVisible = false
-local paletteHotkeys = {}
 local paletteRefreshTimer = nil
+local textMeasurer = nil
 local blockedAppWatcher = nil
 local lastBlockedAppNotification = nil
 local notifiedBlockedAppPIDs = {}
@@ -31,7 +32,7 @@ local blockedAppNames = {
 }
 
 local paletteWidth = 340
-local paletteHeight = 193
+local paletteHeight = 165
 
 local function now()
     return os.time()
@@ -91,11 +92,19 @@ local function runShortcutWithInput(name, input, silent)
         shortcutTasks[task] = nil
         os.remove(inputPath)
         if exitCode ~= 0 and not silent then
-            local detail = stderr:gsub("%s+$", "")
+            local detail = tostring(stderr or ""):gsub("%s+$", "")
             show("Flowmodoro could not run " .. name .. " • "
                 .. (detail ~= "" and detail or "unknown Shortcuts error"))
         end
     end, { "run", name, "--input-path", inputPath })
+
+    if not task then
+        os.remove(inputPath)
+        if not silent then
+            show("Flowmodoro could not start " .. name)
+        end
+        return false
+    end
 
     shortcutTasks[task] = true
     if not task:start() then
@@ -180,10 +189,6 @@ local function hidePalette()
         paletteRefreshTimer = nil
     end
 
-    for _, hotkey in ipairs(paletteHotkeys) do
-        hotkey:disable()
-    end
-
     if palette then
         palette:hide()
     end
@@ -193,7 +198,9 @@ end
 local function showPalette()
     hidePalette()
 
-    local screenFrame = hs.mouse.getCurrentScreen():frame()
+    local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
+    if not screen then return end
+    local screenFrame = screen:frame()
     palette:frame({
         x = screenFrame.x + ((screenFrame.w - paletteWidth) / 2),
         y = screenFrame.y + ((screenFrame.h - paletteHeight) / 2),
@@ -209,16 +216,13 @@ local function showPalette()
             palette:replaceElements(paletteElements())
         end
     end)
-    for _, hotkey in ipairs(paletteHotkeys) do
-        hotkey:enable()
-    end
 end
 
 local function togglePalette()
     if paletteVisible then
-        hidePalette()
+        paletteModal:exit()
     else
-        showPalette()
+        paletteModal:enter()
     end
 end
 
@@ -263,20 +267,18 @@ paletteElements = function()
     }
 
     local rows = {
-        { "j", "Start", 73 },
-        { "k", "Stop", 101 },
-        { "b", "Toggle Background Sounds", 129 },
-        { "s", "Switch Background Sound", 157 },
+        { "j", "Start / Stop", 73 },
+        { "b", "Toggle Background Sounds", 101 },
+        { "s", "Switch Background Sound", 129 },
     }
 
-    local textStyle = { font = ui.font, size = ui.sizes.body }
     local hintWidth = 0
     local captionWidth = 0
     for _, row in ipairs(rows) do
         hintWidth = math.max(hintWidth,
-            math.ceil(hs.drawing.getTextDrawingSize(ui.hint(row[1]), textStyle).w))
+            math.ceil(textMeasurer:minimumTextSize(ui.hint(row[1])).w))
         captionWidth = math.max(captionWidth,
-            math.ceil(hs.drawing.getTextDrawingSize(row[2], textStyle).w))
+            math.ceil(textMeasurer:minimumTextSize(row[2]).w))
     end
 
     local columnGap = 12
@@ -307,34 +309,19 @@ paletteElements = function()
     return elements
 end
 
-local function startStopwatch()
-    local timestamp = now()
-    local state = loadState()
-
-    if state.phase == "running" then
-        show("Flowmodoro already running • " .. formatDuration(elapsedSeconds(state, timestamp)))
-        return
-    end
-
-    saveState({
-        phase = "running",
-        startedAt = timestamp,
-    })
-
-    startBlockedAppWatcher()
-    blockApplicationDuringWork(hs.application.frontmostApplication())
-    sendCommand("start")
-
-    show("Flowmodoro started")
-end
-
-local function stopStopwatch()
+local function toggleStopwatch()
     local timestamp = now()
     local state = loadState()
 
     if state.phase ~= "running" then
-        sendCommand(0)
-        show("Flowmodoro stopped • no work time")
+        saveState({
+            phase = "running",
+            startedAt = timestamp,
+        })
+
+        startBlockedAppWatcher()
+        sendCommand("start")
+        show("Flowmodoro started")
         return
     end
 
@@ -372,6 +359,17 @@ function M.setup(hyper, alertModule, uiModule)
 
     palette = hs.canvas.new({ x = 0, y = 0, w = paletteWidth, h = paletteHeight })
         :level("floating")
+    textMeasurer = hs.canvas.new({})
+    textMeasurer._default.textFont = ui.font
+    textMeasurer._default.textSize = ui.sizes.body
+
+    paletteModal = hs.hotkey.modal.new()
+    function paletteModal:entered()
+        showPalette()
+    end
+    function paletteModal:exited()
+        hidePalette()
+    end
 
     -- Reserve 2 from dynamic app assignment and toggle the visual palette.
     hyper:bind({}, "2", {
@@ -380,29 +378,26 @@ function M.setup(hyper, alertModule, uiModule)
     }, togglePalette)
 
     local function paletteAction(key, action)
-        table.insert(paletteHotkeys, hs.hotkey.new({}, key, function()
-            if not paletteVisible then return end
-            hidePalette()
+        paletteModal:bind({}, key, function()
+            paletteModal:exit()
             action()
-        end))
+        end)
     end
-    paletteAction("j", startStopwatch)
-    paletteAction("k", stopStopwatch)
+    paletteAction("j", toggleStopwatch)
     paletteAction("b", toggleBackgroundSounds)
     paletteAction("s", switchBackgroundSound)
-    table.insert(paletteHotkeys, hs.hotkey.new({}, "escape", function()
-        if paletteVisible then hidePalette() end
-    end))
+    paletteModal:bind({}, "escape", function() paletteModal:exit() end)
 
     if loadState().phase == "running" then
         startBlockedAppWatcher()
-        blockApplicationDuringWork(hs.application.frontmostApplication())
         sendCommand("start")
     end
 
     -- Expose a small console API for inspection without leaking internal state.
     M.toggle = togglePalette
-    M.dismiss = hidePalette
+    M.dismiss = function()
+        if paletteVisible then paletteModal:exit() end
+    end
     M.isVisible = function() return paletteVisible end
     M.canvasInfo = function()
         return {

@@ -1,28 +1,27 @@
-local function loadModule(name)
-    return dofile(hs.configdir .. "/modules/" .. name .. ".lua")
-end
-
 -- Keep Hammerspoon's local CLI available for config inspection and reloads.
 require("hs.ipc")
 
--- Modules are loaded explicitly so each file can keep its state private.
-local ui = loadModule("ui")
-local alerts = loadModule("alerts")
-local hyperModule = loadModule("hyper")
-local apps = loadModule("apps")
-local windows = loadModule("windows")
-local airpods = loadModule("airpods")
-local deeplinks = loadModule("deeplinks")
-local passwords = loadModule("passwords")
-local flowmodoro = loadModule("flowmodoro")
+local ui = require("modules.ui")
+local alerts = require("modules.alerts")
+local cheatsheetModule = require("modules.cheatsheet")
+local hyperModule = require("modules.hyper")
+local apps = require("modules.apps")
+local windows = require("modules.windows")
+local airpods = require("modules.airpods")
+local deeplinks = require("modules.deeplinks")
+local passwords = require("modules.passwords")
+local flowmodoro = require("modules.flowmodoro")
+
+hs.window.animationDuration = 0
 
 alerts.setup()
 
-local hyper = hyperModule.setup(ui)
+local cheatsheet = cheatsheetModule.new(ui)
+local hyper = hyperModule.setup(cheatsheet)
 
 -- Command modules claim their keys before apps derives its assignable keys.
 -- Add future shortcut-owning modules above apps.setup for automatic exclusion.
-windows.setup(hyper, alerts, apps)
+windows.setup(hyper, alerts)
 airpods.setup(hyper, alerts)
 deeplinks.setup(hyper)
 passwords.setup(hyper, alerts)

@@ -28,8 +28,6 @@ function M.close(id, seconds)
 end
 
 function M.setup()
-    hs.window.animationDuration = 0
-
     hs.alert.defaultStyle.strokeWidth = 0
     hs.alert.defaultStyle.fillColor = { white = 0, alpha = 0.75 }
     hs.alert.defaultStyle.strokeColor = { white = 1, alpha = 0 }

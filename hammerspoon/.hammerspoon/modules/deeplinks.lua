@@ -20,13 +20,14 @@ function M.setup(hyper)
         hs.urlevent.openURL("alfred://runtrigger/com.mbp.misc/browse-y3/")
     end)
 
+    --[[]
     hyper:bind({}, "3", {
         group = "Shottr",
         description = "Capture fullscreen",
     }, function()
         hs.urlevent.openURL("shottr://grab/fullscreen")
     end)
-
+--]]
     hyper:bind({}, "4", {
         group = "Shottr",
         description = "Show Shottr",
