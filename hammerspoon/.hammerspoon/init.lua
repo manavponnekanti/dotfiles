@@ -9,7 +9,6 @@ local apps = require("modules.apps")
 local windows = require("modules.windows")
 local airpods = require("modules.airpods")
 local deeplinks = require("modules.deeplinks")
-local passwords = require("modules.passwords")
 local flowmodoro = require("modules.flowmodoro")
 
 hs.window.animationDuration = 0
@@ -29,7 +28,6 @@ local hyper = hyperModule.setup(cheatsheet)
 windows.setup(hyper)
 airpods.setup(hyper, alerts)
 deeplinks.setup(hyper)
-passwords.setup(hyper, alerts)
 flowmodoro.setup(hyper, alerts, ui)
 apps.setup(hyper, alerts)
 

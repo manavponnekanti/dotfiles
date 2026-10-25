@@ -1,4 +1,5 @@
 return {
+    ["1"] = "com.apple.Passwords",
     ["a"] = "com.googlecode.iterm2",
     ["b"] = "com.brave.Browser",
     ["c"] = "com.apple.iCal",
