@@ -1,8 +1,10 @@
 local M = {}
 
 local menuBarExtraBundleID = "com.apple.Passwords.MenuBarExtra"
-local menuBarItemTitle = "apple.passwords"
 
+-- The extra owns exactly one status item. Matching it by title broke in
+-- macOS 26/27, which renamed it from "apple.passwords" to "Apple Passwords Key";
+-- AXExtrasMenuBar reaches it without depending on that name.
 local function openMenuBarWindow(alerts)
     local app = hs.application.applicationsForBundleID(menuBarExtraBundleID)[1]
     if not app then
@@ -10,20 +12,16 @@ local function openMenuBarWindow(alerts)
         return
     end
 
-    local appElement = hs.axuielement.applicationElement(app)
-    for _, menuBar in ipairs(appElement:attributeValue("AXChildren") or {}) do
-        for _, item in ipairs(menuBar:attributeValue("AXChildren") or {}) do
-            if item:attributeValue("AXTitle") == menuBarItemTitle then
-                local pressed = item:performAction("AXPress")
-                if not pressed then
-                    alerts.show("Could not open Passwords")
-                end
-                return
-            end
-        end
+    local extras = hs.axuielement.applicationElement(app):attributeValue("AXExtrasMenuBar")
+    local item = extras and (extras:attributeValue("AXChildren") or {})[1]
+    if not item then
+        alerts.show("Passwords menu bar item not found")
+        return
     end
 
-    alerts.show("Passwords menu bar item not found")
+    if not item:performAction("AXPress") then
+        alerts.show("Could not open Passwords")
+    end
 end
 
 function M.setup(hyper, alerts)

@@ -88,31 +88,31 @@ local function showBindingSaveError(saveErr)
     end
 end
 
--- Set to true to always focus through LaunchServices (the previous behaviour)
--- if direct activation proves unreliable on this macOS version.
-local alwaysUseLaunchServices = false
-
--- Exact bundle-ID lookup. hs.application.get() falls back to scanning every
--- app's window titles when the app isn't running, which is very slow.
-local function runningApp(bundleID)
-    return hs.application.applicationsForBundleID(bundleID)[1]
-end
-
--- Bring an already-running app forward without a LaunchServices round-trip.
--- Returns false when the caller should fall back to launchOrFocusByBundleID,
--- e.g. the app has no open window and needs a "reopen" to create one.
-local function focusRunningApp(app)
-    if alwaysUseLaunchServices then return false end
-    if app:isHidden() then app:unhide() end
-    if not app:focusedWindow() then return false end
-    return app:activate()
-end
-
+-- Raise the app's topmost window, or hide the app when it is already in front.
+-- Deliberately does nothing else: no re-layout, no unminimizing, no touching
+-- the app's other windows. macOS decides which window that is.
 local function toggleApp(bundleID)
-    local app = runningApp(bundleID)
-    if app and app:isFrontmost() then
+    -- Exact bundle-ID lookup. hs.application.get() falls back to scanning every
+    -- app's window titles when the app isn't running, which is very slow.
+    local app = hs.application.applicationsForBundleID(bundleID)[1]
+    if not app then
+        hs.application.launchOrFocusByBundleID(bundleID)
+        return
+    end
+
+    if app:isFrontmost() then
         app:hide()
-    elseif not (app and focusRunningApp(app)) then
+        return
+    end
+
+    if app:isHidden() then app:unhide() end
+
+    -- The one Accessibility read in this path. A running app with no window
+    -- (everything closed, or still starting) needs LaunchServices to reopen one.
+    local win = app:mainWindow()
+    if win then
+        win:focus()
+    else
         hs.application.launchOrFocusByBundleID(bundleID)
     end
 end

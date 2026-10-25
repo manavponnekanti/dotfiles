@@ -26,7 +26,7 @@ local hyper = hyperModule.setup(cheatsheet)
 
 -- Command modules claim their keys before apps derives its assignable keys.
 -- Add future shortcut-owning modules above apps.setup for automatic exclusion.
-windows.setup(hyper, alerts)
+windows.setup(hyper)
 airpods.setup(hyper, alerts)
 deeplinks.setup(hyper)
 passwords.setup(hyper, alerts)
