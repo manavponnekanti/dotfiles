@@ -1,12 +1,32 @@
 local M = {}
 
+local copyLinkTask = nil
+
+-- Run the AppleScript in the background so Hammerspoon isn't blocked while
+-- Safari responds (hs.osascript.applescript is synchronous).
+local function copySafariLink()
+    if copyLinkTask and copyLinkTask:isRunning() then return end
+    copyLinkTask = hs.task.new("/usr/bin/osascript", function(exitCode, _, stderr)
+        if exitCode ~= 0 and stderr and stderr ~= "" then print(stderr) end
+    end, {
+        "-e", 'tell application "Safari" to set pageURL to URL of current tab of front window',
+        "-e", "set the clipboard to pageURL",
+    })
+    if copyLinkTask then copyLinkTask:start() end
+end
+
 function M.setup(hyper)
+    hyper:bind({ "cmd" }, "c", {
+        group = "Safari",
+        description = "Copy current tab link",
+    }, copySafariLink)
+
     hyper:bind({ "cmd" }, "r", {
         group = "Utilities",
         description = "Reload Hammerspoon",
     }, hs.reload)
 
-    hyper:bind({}, "r", {
+     hyper:bind({ "cmd" }, "d", {
         group = "Alfred",
         description = "Browse Downloads",
     }, function()

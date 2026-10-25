@@ -32,34 +32,58 @@ local tiles = {
 -- These apps use half the screen during a layout reset; other apps maximize.
 local restoreLeftHalfBundleIDs = {
     ["com.apple.MobileSMS"] = true,
+    ["com.apple.reminders"] = true,
     ["ru.keepcoder.Telegram"] = true,
     ["net.whatsapp.WhatsApp"] = true,
     ["com.googlecode.iterm2"] = true,
+    ["com.automattic.beeper.desktop"] = true;
 }
 
 local function activeWindow()
-    return hs.window.frontmostWindow()
+    local win = hs.window.focusedWindow()
+    if win then return win end
+
+    -- Some apps (Office especially) briefly report no focused window. Fall back
+    -- to the frontmost app only; hs.window.frontmostWindow() would instead
+    -- query every window of every running app.
+    local app = hs.application.frontmostApplication()
+    return app and app:mainWindow() or nil
 end
 
-local function isManagedWindow(win)
-    if win:isFullScreen() then return false end
-    if win:isStandard() then return true end
+-- Cheapest checks first: each call is an Accessibility request to the app.
+local function isManagedWindow(win, mainWindowID)
+    if win:isStandard() then
+        return not win:isFullScreen()
+    end
 
     -- A few apps expose their main window as AXDialog.
-    local app = win:application()
-    local mainWindow = app and app:mainWindow()
-    return win:role() == "AXWindow"
-        and mainWindow
-        and win:id()
-        and mainWindow:id() == win:id()
-        or false
+    local id = win:id()
+    return id ~= nil
+        and id == mainWindowID()
+        and win:role() == "AXWindow"
+        and not win:isFullScreen()
 end
 
 local function managedWindowsOnScreen(screen)
     local windows = {}
-    for _, win in ipairs(hs.window.allWindows()) do
-        if win:screen() == screen and isManagedWindow(win) then
-            table.insert(windows, win)
+    -- Only regular (Dock) apps that aren't hidden. hs.window.allWindows() also
+    -- queries menu-bar extras and helpers, any of which can stall a request.
+    for _, app in ipairs(hs.application.runningApplications()) do
+        if app:kind() == 1 and not app:isHidden() then
+            local cachedMainID = nil
+            local function mainWindowID()
+                if cachedMainID == nil then
+                    local mainWindow = app:mainWindow()
+                    cachedMainID = mainWindow and mainWindow:id() or false
+                end
+                return cachedMainID
+            end
+
+            for _, win in ipairs(app:visibleWindows()) do
+                if win:screen() == screen and isManagedWindow(win, mainWindowID) then
+                    table.insert(windows, win)
+                end
+            end
         end
     end
     return windows

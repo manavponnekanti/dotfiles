@@ -88,18 +88,46 @@ local function showBindingSaveError(saveErr)
     end
 end
 
+-- Set to true to always focus through LaunchServices (the previous behaviour)
+-- if direct activation proves unreliable on this macOS version.
+local alwaysUseLaunchServices = false
+
+-- Exact bundle-ID lookup. hs.application.get() falls back to scanning every
+-- app's window titles when the app isn't running, which is very slow.
+local function runningApp(bundleID)
+    return hs.application.applicationsForBundleID(bundleID)[1]
+end
+
+-- Bring an already-running app forward without a LaunchServices round-trip.
+-- Returns false when the caller should fall back to launchOrFocusByBundleID,
+-- e.g. the app has no open window and needs a "reopen" to create one.
+local function focusRunningApp(app)
+    if alwaysUseLaunchServices then return false end
+    if app:isHidden() then app:unhide() end
+    if not app:focusedWindow() then return false end
+    return app:activate()
+end
+
 local function toggleApp(bundleID)
-    local app = hs.application.get(bundleID)
+    local app = runningApp(bundleID)
     if app and app:isFrontmost() then
         app:hide()
-    else
+    elseif not (app and focusRunningApp(app)) then
         hs.application.launchOrFocusByBundleID(bundleID)
     end
 end
 
+-- Cheatsheet descriptions call this for every binding on each show; cache
+-- the LaunchServices lookups.
+local appNameCache = {}
 local function appName(bundleID)
     if not bundleID then return nil end
-    return hs.application.nameForBundleID(bundleID) or bundleID
+    local name = appNameCache[bundleID]
+    if not name then
+        name = hs.application.nameForBundleID(bundleID) or bundleID
+        appNameCache[bundleID] = name
+    end
+    return name
 end
 
 function M.setup(hyper, alertModule)

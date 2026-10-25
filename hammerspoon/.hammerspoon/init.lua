@@ -14,6 +14,11 @@ local flowmodoro = require("modules.flowmodoro")
 
 hs.window.animationDuration = 0
 
+-- Cap how long a single Accessibility request may block Hammerspoon. The macOS
+-- default is ~6s, so one busy app (e.g. Outlook mid-sync) could stall every
+-- hotkey. Raise this if tiling a slow app starts silently failing.
+hs.window.timeout(1)
+
 alerts.setup()
 
 local cheatsheet = cheatsheetModule.new(ui)

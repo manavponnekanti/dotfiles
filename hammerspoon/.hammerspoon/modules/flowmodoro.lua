@@ -23,6 +23,7 @@ local blockedAppBundleIDs = {
     ["org.telegram.desktop"] = true,
     ["ph.telegra.Telegraph"] = true,
     ["ru.keepcoder.Telegram"] = true,
+    ["com.automattic.beeper.desktop"] = true,
 }
 
 local blockedAppNames = {
@@ -44,11 +45,16 @@ local function idleState()
     }
 end
 
+-- State is persisted to hs.settings but read from memory: the palette polls it
+-- every second and the app watcher checks it on every app switch.
+local cachedState = nil
+
 local function saveState(state)
+    cachedState = state
     hs.settings.set(settingsKey, state)
 end
 
-local function loadState()
+local function readPersistedState()
     local state = hs.settings.get(settingsKey)
     if type(state) ~= "table" then
         return idleState()
@@ -65,6 +71,13 @@ local function loadState()
     end
 
     return idleState()
+end
+
+local function loadState()
+    if not cachedState then
+        cachedState = readPersistedState()
+    end
+    return cachedState
 end
 
 local function show(message)
@@ -237,6 +250,40 @@ local function formatDuration(seconds)
     return string.format("%d:%02d", minutes, remainder)
 end
 
+-- The row labels never change, so measure them once instead of every second.
+local cachedRowLayout = nil
+local function paletteRowLayout()
+    if cachedRowLayout then return cachedRowLayout end
+
+    local rows = {
+        { "j", "Start / Stop", 73 },
+        { "b", "Toggle Background Sounds", 101 },
+        { "s", "Switch Background Sound", 129 },
+    }
+
+    local hintWidth = 0
+    local captionWidth = 0
+    for _, row in ipairs(rows) do
+        hintWidth = math.max(hintWidth,
+            math.ceil(textMeasurer:minimumTextSize(ui.hint(row[1])).w))
+        captionWidth = math.max(captionWidth,
+            math.ceil(textMeasurer:minimumTextSize(row[2]).w))
+    end
+
+    local columnGap = 12
+    local listWidth = hintWidth + columnGap + captionWidth
+    local listX = math.floor((paletteWidth - listWidth) / 2)
+
+    cachedRowLayout = {
+        rows = rows,
+        hintWidth = hintWidth,
+        captionWidth = captionWidth,
+        listX = listX,
+        captionX = listX + hintWidth + columnGap,
+    }
+    return cachedRowLayout
+end
+
 paletteElements = function()
     local timestamp = now()
     local state = loadState()
@@ -266,25 +313,12 @@ paletteElements = function()
         },
     }
 
-    local rows = {
-        { "j", "Start / Stop", 73 },
-        { "b", "Toggle Background Sounds", 101 },
-        { "s", "Switch Background Sound", 129 },
-    }
-
-    local hintWidth = 0
-    local captionWidth = 0
-    for _, row in ipairs(rows) do
-        hintWidth = math.max(hintWidth,
-            math.ceil(textMeasurer:minimumTextSize(ui.hint(row[1])).w))
-        captionWidth = math.max(captionWidth,
-            math.ceil(textMeasurer:minimumTextSize(row[2]).w))
-    end
-
-    local columnGap = 12
-    local listWidth = hintWidth + columnGap + captionWidth
-    local listX = math.floor((paletteWidth - listWidth) / 2)
-    local captionX = listX + hintWidth + columnGap
+    local layout = paletteRowLayout()
+    local rows = layout.rows
+    local hintWidth = layout.hintWidth
+    local captionWidth = layout.captionWidth
+    local listX = layout.listX
+    local captionX = layout.captionX
 
     for _, row in ipairs(rows) do
         table.insert(elements, {
@@ -360,8 +394,8 @@ function M.setup(hyper, alertModule, uiModule)
     palette = hs.canvas.new({ x = 0, y = 0, w = paletteWidth, h = paletteHeight })
         :level("floating")
     textMeasurer = hs.canvas.new({})
-    textMeasurer._default.textFont = ui.font
-    textMeasurer._default.textSize = ui.sizes.body
+    textMeasurer:canvasDefaultFor("textFont", ui.font)
+    textMeasurer:canvasDefaultFor("textSize", ui.sizes.body)
 
     paletteModal = hs.hotkey.modal.new()
     function paletteModal:entered()

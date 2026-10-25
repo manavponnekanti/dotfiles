@@ -4,7 +4,7 @@ local menuBarExtraBundleID = "com.apple.Passwords.MenuBarExtra"
 local menuBarItemTitle = "apple.passwords"
 
 local function openMenuBarWindow(alerts)
-    local app = hs.application.get(menuBarExtraBundleID)
+    local app = hs.application.applicationsForBundleID(menuBarExtraBundleID)[1]
     if not app then
         alerts.show("Enable Passwords in the menu bar")
         return
