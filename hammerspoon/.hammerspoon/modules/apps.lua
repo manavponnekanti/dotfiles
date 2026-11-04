@@ -107,12 +107,12 @@ local function toggleApp(bundleID)
 
     if app:isHidden() then app:unhide() end
 
-    -- The one Accessibility read in this path. A running app with no window
-    -- (everything closed, or still starting) needs LaunchServices to reopen one.
-    local win = app:mainWindow()
-    if win then
-        win:focus()
-    else
+    -- app:activate() asks CGS whether the app is servicing its event loop
+    -- before it touches the Accessibility API, so an app wedged after a wake
+    -- cannot block this thread and with it every other hotkey. It returns
+    -- false for that case and when activation fails outright; LaunchServices
+    -- can retry those without blocking.
+    if not app:activate() then
         hs.application.launchOrFocusByBundleID(bundleID)
     end
 end

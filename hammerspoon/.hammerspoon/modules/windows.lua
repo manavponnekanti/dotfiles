@@ -25,7 +25,14 @@ local function activeWindow()
     -- to the frontmost app only; hs.window.frontmostWindow() would instead
     -- query every window of every running app.
     local app = hs.application.frontmostApplication()
-    return app and app:mainWindow() or nil
+    if not app then return nil end
+
+    -- app:mainWindow() is an Accessibility read (AXMainWindow). Against an app
+    -- that has stopped servicing its event loop it blocks this thread until it
+    -- times out, which freezes every hotkey, so skip it in that case.
+    if app.isUnresponsive and app:isUnresponsive() then return nil end
+
+    return app:mainWindow()
 end
 
 local function rounded(value)
@@ -38,7 +45,12 @@ local function tile(unit)
     local win = activeWindow()
     if not win then return end
 
-    local frame = win:screen():frame()
+    -- A window left on a display that has just been unplugged has no screen,
+    -- and indexing that nil would throw out of the hotkey callback.
+    local screen = win:screen()
+    if not screen then return end
+
+    local frame = screen:frame()
     local x1 = rounded(frame.x + frame.w * unit[1])
     local y1 = rounded(frame.y + frame.h * unit[2])
     local x2 = rounded(frame.x + frame.w * (unit[1] + unit[3]))
@@ -92,7 +104,10 @@ function M.setup(hyper)
         local win = activeWindow()
         if not win then return end
 
-        win:moveToScreen(win:screen():next(), false, true, 0)
+        local screen = win:screen()
+        if not screen then return end
+
+        win:moveToScreen(screen:next(), false, true, 0)
         hs.mouse.absolutePosition(win:frame().center)
     end)
 end
