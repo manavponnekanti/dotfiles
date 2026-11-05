@@ -3,6 +3,13 @@ local M = {}
 local settingsKey = "flowmodoro.state"
 local shortcutName = "Flowmodoro-hs"
 local minimumSessionSeconds = 10 * 60
+-- application:kill() is a polite quit request, which an app sitting on a save
+-- or confirm sheet can ignore indefinitely. Escalate after this long so a
+-- blocked app cannot quietly stay open for the rest of the session.
+local killEscalationSeconds = 5
+-- shortcuts(1) has no timeout of its own; cap it so a stuck run cannot leak
+-- its input file and its shortcutTasks entry.
+local shortcutTimeout = 30
 
 local alerts = nil
 local ui = nil
@@ -14,6 +21,7 @@ local textMeasurer = nil
 local blockedAppWatcher = nil
 local lastBlockedAppNotification = nil
 local notifiedBlockedAppPIDs = {}
+local pendingKills = {}
 local paletteElements = nil
 local shortcutTasks = {}
 
@@ -101,9 +109,22 @@ local function runShortcutWithInput(name, input, silent)
     inputFile:close()
 
     local task
-    task = hs.task.new("/usr/bin/shortcuts", function(exitCode, _, stderr)
+    local watchdog
+
+    -- Runs once, from whichever gets there first: the task's own exit or the
+    -- watchdog below. The shortcutTasks entry doubles as the guard.
+    local function finish()
+        if watchdog then
+            watchdog:stop()
+            watchdog = nil
+        end
         shortcutTasks[task] = nil
         os.remove(inputPath)
+    end
+
+    task = hs.task.new("/usr/bin/shortcuts", function(exitCode, _, stderr)
+        if not shortcutTasks[task] then return end
+        finish()
         if exitCode ~= 0 and not silent then
             local detail = tostring(stderr or ""):gsub("%s+$", "")
             show("Flowmodoro could not run " .. name .. " • "
@@ -121,13 +142,21 @@ local function runShortcutWithInput(name, input, silent)
 
     shortcutTasks[task] = true
     if not task:start() then
-        shortcutTasks[task] = nil
-        os.remove(inputPath)
+        finish()
         if not silent then
             show("Flowmodoro could not start " .. name)
         end
         return false
     end
+
+    watchdog = hs.timer.doAfter(shortcutTimeout, function()
+        if not shortcutTasks[task] then return end
+        finish()
+        task:terminate()
+        if not silent then
+            show("Flowmodoro gave up waiting for " .. name)
+        end
+    end)
     return true
 end
 
@@ -157,6 +186,24 @@ local function isBlockedApp(application)
     return blockedAppNames[blockedAppDisplayName(application):lower()] == true
 end
 
+-- A graceful quit can hang on a confirm sheet, leaving the app open for the
+-- rest of the session. Check back and force it — but only while the session is
+-- still running, since a stop in the meantime means the app may live.
+local function escalateKill(pid)
+    if not pid or pendingKills[pid] then return end
+
+    pendingKills[pid] = hs.timer.doAfter(killEscalationSeconds, function()
+        pendingKills[pid] = nil
+        if loadState().phase ~= "running" then return end
+
+        -- Re-check what holds the pid: the graceful quit may have completed
+        -- and the number been reused, and -9 on an unrelated app is worse than
+        -- a blocked app staying open.
+        local survivor = hs.application.applicationForPID(pid)
+        if survivor and isBlockedApp(survivor) then survivor:kill9() end
+    end)
+end
+
 local function blockApplicationDuringWork(application)
     if not application or loadState().phase ~= "running" or not isBlockedApp(application) then
         return false
@@ -165,6 +212,7 @@ local function blockApplicationDuringWork(application)
     local appName = blockedAppDisplayName(application)
     local pid = application:pid()
     application:kill()
+    escalateKill(pid)
 
     if not pid or not notifiedBlockedAppPIDs[pid] then
         if pid then notifiedBlockedAppPIDs[pid] = true end
@@ -193,6 +241,11 @@ end
 local function stopBlockedAppWatcher()
     if blockedAppWatcher then
         blockedAppWatcher:stop()
+    end
+
+    for pid, pending in pairs(pendingKills) do
+        pending:stop()
+        pendingKills[pid] = nil
     end
 end
 
@@ -387,7 +440,14 @@ function M.setup(hyper, alertModule, uiModule)
             blockApplicationDuringWork(application)
         elseif eventType == hs.application.watcher.terminated and application then
             local pid = application:pid()
-            if pid then notifiedBlockedAppPIDs[pid] = nil end
+            if pid then
+                notifiedBlockedAppPIDs[pid] = nil
+                local pending = pendingKills[pid]
+                if pending then
+                    pending:stop()
+                    pendingKills[pid] = nil
+                end
+            end
         end
     end)
 
