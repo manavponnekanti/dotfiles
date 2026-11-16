@@ -487,7 +487,8 @@ function M.setup(hyper, alertModule, uiModule)
         sendCommand("start")
     end
 
-    -- Expose a small console API for inspection without leaking internal state.
+    -- A small console API for inspection without leaking internal state:
+    -- require("modules.flowmodoro").isVisible()
     M.toggle = togglePalette
     M.dismiss = function()
         if paletteVisible then paletteModal:exit() end
@@ -502,7 +503,6 @@ function M.setup(hyper, alertModule, uiModule)
             visible = palette:isVisible(),
         }
     end
-    hs.flowmodoro = M
 end
 
 return M

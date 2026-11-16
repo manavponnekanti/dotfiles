@@ -313,12 +313,8 @@ function M.new(ui)
         ui = ui,
     }, Cheatsheet)
 
-    -- Preserve the existing console inspection helpers.
-    hs.f19Cheatsheet = {
-        showCheatsheet = function() cheatsheet:show() end,
-        dismissCheatsheet = function() cheatsheet:hide() end,
-        isCheatsheetVisible = function() return cheatsheet:isVisible() end,
-    }
+    -- Console access: require("modules.cheatsheet").instance:show()
+    M.instance = cheatsheet
 
     return cheatsheet
 end
