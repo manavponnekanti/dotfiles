@@ -11,13 +11,6 @@ end
 
 local appBindingsPath = hs.configdir .. "/app_bindings.lua"
 
-local function showAlert(message, ...)
-    if alerts then
-        return alerts.show(message, ...)
-    end
-    return hs.alert.show(message, ...)
-end
-
 local function serializeBindings(bindings)
     -- Keep the generated file deterministic and pleasant to edit by hand.
     local keys = {}
@@ -71,18 +64,18 @@ local function loadAppBindings()
     end
 
     if ok then
-        showAlert("app_bindings.lua error")
+        alerts.show("app_bindings.lua error")
         print("app_bindings.lua must return a table")
     else
         local detail = tostring(loaded)
-        showAlert(detail:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
+        alerts.show(detail:match("cannot open") and "Missing app_bindings.lua" or "app_bindings.lua error")
         print(detail)
     end
     return {}
 end
 
 local function showBindingSaveError(saveErr)
-    showAlert("Binding save failed")
+    alerts.show("Binding save failed")
     if saveErr then
         print(saveErr)
     end
@@ -91,43 +84,82 @@ end
 -- Raise the app's topmost window, or hide the app when it is already in front.
 -- Deliberately does nothing else: no re-layout, no unminimizing, no touching
 -- the app's other windows. macOS decides which window that is.
+--
+-- Accessibility calls are the hazard here. Each is a synchronous round trip
+-- into the target app, and an app that has stopped servicing its event loop
+-- answers none of them, so this thread waits out init.lua's hs.window.timeout
+-- cap -- measured at 1001ms per call against a stopped app, with no hotkey
+-- firing meanwhile. Against a responsive app every call below costs the same
+-- 0.03-0.07ms, so what matters is how many of them a keypress makes, not which
+-- ones: two in the common case, and nothing Accessibility can answer that the
+-- window server can answer instead.
 local function toggleApp(bundleID)
     -- Exact bundle-ID lookup. hs.application.get() falls back to scanning every
     -- app's window titles when the app isn't running, which is very slow.
     local app = hs.application.applicationsForBundleID(bundleID)[1]
     if not app then
+        -- False means LaunchServices has no such app: a stale binding.
+        if not hs.application.launchOrFocusByBundleID(bundleID) then
+            alerts.show("App not installed: " .. bundleID)
+        end
+        return
+    end
+
+    -- isUnresponsive() is CGSEventIsAppUnresponsive, answered by the window
+    -- server about the app rather than by the app, so it cannot block; it goes
+    -- first because it is free. Best-effort only: a process suspended with
+    -- SIGSTOP still reads responsive, so it catches the beachball the window
+    -- server has noticed and nothing else. LaunchServices is all that is left
+    -- for an app in that state -- it queues the request without blocking us,
+    -- and the app acts on it if it comes back.
+    -- Undocumented in 1.1.1, so tolerate its absence in a future release.
+    if app.isUnresponsive and app:isUnresponsive() then
         hs.application.launchOrFocusByBundleID(bundleID)
         return
     end
 
-    if app:isFrontmost() then
+    -- NSWorkspace's front app, not AXFrontmost read from the app itself. A
+    -- timed-out Accessibility read returns the attribute's default instead of
+    -- failing, so app:isFrontmost() answers false for a wedged front app and
+    -- this branch would be skipped for the app that most needs hiding.
+    local front = hs.application.frontmostApplication()
+    if front and front:pid() == app:pid() then
         app:hide()
         return
     end
 
-    if app:isHidden() then app:unhide() end
-
-    -- app:activate() asks CGS whether the app is servicing its event loop
-    -- before it touches the Accessibility API, so an app wedged after a wake
-    -- cannot block this thread and with it every other hotkey. It returns
-    -- false for that case and when activation fails outright; LaunchServices
-    -- can retry those without blocking.
-    if not app:activate() then
+    -- A running app with every window closed (cmd-W) only builds one again for
+    -- the reopen Apple Event that LaunchServices sends, which is what a Dock
+    -- click does; raised any other way it brings its menu bar forward and
+    -- nothing else, which is how WhatsApp came to answer F19+w with no window.
+    -- Telegram and Messages ignore reopen, as ba80653 found, so they end up
+    -- where they already were. A read that times out also arrives here, since
+    -- it reports no window; LaunchServices is the right answer for that too.
+    local win = app:mainWindow()
+    if not win then
         hs.application.launchOrFocusByBundleID(bundleID)
+        return
     end
+
+    -- hs.window:focus() ends in the same AXMain write and
+    -- SetFrontProcessWithOptions pair as hs.application:activate(), plus
+    -- upstream's workaround for the Finder desktop taking focus back (F19+f is
+    -- Finder), and it skips activate()'s own AXFocusedWindow read for a window
+    -- already in hand. SetFrontProcessWithOptions unhides a hidden app on its
+    -- own, verified against both branches above, so an isHidden()/unhide()
+    -- pair here would spend two more Accessibility calls, and up to a second of
+    -- this thread, on something already done.
+    win:focus()
 end
 
--- Cheatsheet descriptions call this for every binding on each show; cache
--- the LaunchServices lookups.
-local appNameCache = {}
+-- Cheatsheet descriptions call this for every binding on each show.
+-- nameForBundleID() reads the name through NSBundle, which keeps its own cache:
+-- 3.2ms for the first lookup of a bundle ID, 0.013ms for every one after, so a
+-- cache here would save about 0.4ms per cheatsheet show and is not worth the
+-- lines.
 local function appName(bundleID)
     if not bundleID then return nil end
-    local name = appNameCache[bundleID]
-    if not name then
-        name = hs.application.nameForBundleID(bundleID) or bundleID
-        appNameCache[bundleID] = name
-    end
-    return name
+    return hs.application.nameForBundleID(bundleID) or bundleID
 end
 
 function M.setup(hyper, alertModule)
@@ -157,7 +189,7 @@ function M.setup(hyper, alertModule)
         assignMode = false
         closeAssignModeAlert()
         if showCancelledAlert then
-            showAlert("Assign mode off")
+            alerts.show("Assign mode off")
         end
     end
 
@@ -186,14 +218,14 @@ function M.setup(hyper, alertModule)
                 showBindingSaveError(saveErr)
                 return
             end
-            showAlert("F19+" .. key .. " cleared")
+            alerts.show("F19+" .. key .. " cleared")
         else
             local ok, saveErr = updateAppBinding(key, bundleID)
             if not ok then
                 showBindingSaveError(saveErr)
                 return
             end
-            showAlert("F19+" .. key .. " → " .. name)
+            alerts.show("F19+" .. key .. " → " .. name)
         end
     end
 
