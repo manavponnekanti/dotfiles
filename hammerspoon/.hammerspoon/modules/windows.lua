@@ -39,14 +39,28 @@ local function rounded(value)
     return math.floor(value + 0.5)
 end
 
+-- How far a frame sticks out past the screen's edges, summed over all four.
+local function overflow(x, y, w, h, frame)
+    return math.max(0, frame.x - x) + math.max(0, x + w - (frame.x + frame.w))
+        + math.max(0, frame.y - y) + math.max(0, y + h - (frame.y + frame.h))
+end
+
+-- The nearest top-left to (x, y) that keeps a window of this size on screen.
+local function onScreen(x, y, size, frame)
+    return math.max(frame.x, math.min(x, frame.x + frame.w - size.w)),
+        math.max(frame.y, math.min(y, frame.y + frame.h - size.h))
+end
+
 -- Resize the focused window only; nothing here touches any other window.
 local function tile(unit)
     local win = activeWindow()
     if not win then return end
 
-    -- A window left on a display that has just been unplugged has no screen,
-    -- and indexing that nil would throw out of the hotkey callback.
-    local screen = win:screen()
+    -- win:screen() reads the frame to find the screen; read it once here and
+    -- reuse it. A window left on a display that has just been unplugged has no
+    -- screen, and indexing that nil would throw out of the hotkey callback.
+    local current = win:frame()
+    local screen = hs.screen.find(current)
     if not screen then return end
 
     local frame = screen:frame()
@@ -59,22 +73,40 @@ local function tile(unit)
     if x2 < frame.x + frame.w then x2 = x2 - gap end
     if y2 < frame.y + frame.h then y2 = y2 - gap end
 
-    -- Position, then size: two Accessibility writes. win:setFrame() writes the
-    -- size on both sides of the move, and the app lays out and redraws after
-    -- every write, so Calendar took three times as long and Electron apps
-    -- flashed at the new size in the old place before moving.
-    win:setTopLeft({ x = x1, y = y1 })
-    win:setSize({ w = x2 - x1, h = y2 - y1 })
+    local w, h = x2 - x1, y2 - y1
+
+    -- One size write and one position write, never win:setFrame(): it writes
+    -- the size on both sides of the move, and the app lays out and redraws
+    -- after every write, so Calendar took twice as long. As in Rectangle,
+    -- resize first when moving at the old size would leave the window hanging
+    -- off screen. Unlike Rectangle, only when the new size fits where the
+    -- window already is: macOS squeezes a resize that runs past the screen
+    -- edge, and undoing that costs a second resize. Otherwise move first,
+    -- which also avoids the in-place redraw that flashes in Electron apps.
+    local resizes = current.w ~= w or current.h ~= h
+    local sizeFirst = resizes
+        and overflow(current.x, current.y, w, h, frame) <= 1
+        and overflow(x1, y1, current.w, current.h, frame) > 1
 
     -- An app may refuse a size below its minimum (Calendar is wider than half a
-    -- laptop screen), leaving a right or bottom tile hanging off the screen.
-    -- Slide it back on at the size the app accepted. A top-left-anchored tile
-    -- can only overflow if the app is bigger than the screen, so skip the read.
+    -- laptop screen). Resizing first reads back the size it accepted, so the
+    -- window is placed once, already on screen.
+    if sizeFirst then
+        win:setSize({ w = w, h = h })
+        local x, y = onScreen(x1, y1, win:size(), frame)
+        win:setTopLeft({ x = x, y = y })
+        return
+    end
+
+    if current.x ~= x1 or current.y ~= y1 then win:setTopLeft({ x = x1, y = y1 }) end
+    if resizes then win:setSize({ w = w, h = h }) end
+
+    -- Moving first can still leave a refused size hanging off a right or bottom
+    -- edge; slide it back on. A top-left-anchored tile can only overflow if the
+    -- app is bigger than the screen, so skip the read.
     if unit[1] == 0 and unit[2] == 0 then return end
 
-    local size = win:size()
-    local x = math.max(frame.x, math.min(x1, frame.x + frame.w - size.w))
-    local y = math.max(frame.y, math.min(y1, frame.y + frame.h - size.h))
+    local x, y = onScreen(x1, y1, win:size(), frame)
     if x ~= x1 or y ~= y1 then win:setTopLeft({ x = x, y = y }) end
 end
 
