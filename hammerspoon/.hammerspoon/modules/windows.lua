@@ -39,8 +39,7 @@ local function rounded(value)
     return math.floor(value + 0.5)
 end
 
--- Resize the focused window only. Nothing here reads or moves any other window,
--- so each shortcut costs a single Accessibility write.
+-- Resize the focused window only; nothing here touches any other window.
 local function tile(unit)
     local win = activeWindow()
     if not win then return end
@@ -60,19 +59,23 @@ local function tile(unit)
     if x2 < frame.x + frame.w then x2 = x2 - gap end
     if y2 < frame.y + frame.h then y2 = y2 - gap end
 
-    win:setFrame(hs.geometry.rect(x1, y1, x2 - x1, y2 - y1), 0)
+    -- Position, then size: two Accessibility writes. win:setFrame() writes the
+    -- size on both sides of the move, and the app lays out and redraws after
+    -- every write, so Calendar took three times as long and Electron apps
+    -- flashed at the new size in the old place before moving.
+    win:setTopLeft({ x = x1, y = y1 })
+    win:setSize({ w = x2 - x1, h = y2 - y1 })
 
-    -- Top-left-anchored tiles cannot overflow unless an app is wider or taller
-    -- than the screen itself, so avoid an unnecessary Accessibility read.
+    -- An app may refuse a size below its minimum (Calendar is wider than half a
+    -- laptop screen), leaving a right or bottom tile hanging off the screen.
+    -- Slide it back on at the size the app accepted. A top-left-anchored tile
+    -- can only overflow if the app is bigger than the screen, so skip the read.
     if unit[1] == 0 and unit[2] == 0 then return end
 
-    -- Keep the app's accepted size and correct only its position when a
-    -- minimum-size constraint pushes it beyond the target screen.
-    local actual = win:frame()
-    local contained = hs.geometry.copy(actual):fit(frame)
-    if contained.x ~= actual.x or contained.y ~= actual.y then
-        win:setTopLeft(contained.topleft)
-    end
+    local size = win:size()
+    local x = math.max(frame.x, math.min(x1, frame.x + frame.w - size.w))
+    local y = math.max(frame.y, math.min(y1, frame.y + frame.h - size.h))
+    if x ~= x1 or y ~= y1 then win:setTopLeft({ x = x, y = y }) end
 end
 
 function M.setup(hyper)
