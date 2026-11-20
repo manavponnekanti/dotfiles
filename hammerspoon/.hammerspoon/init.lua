@@ -8,7 +8,7 @@ local alerts = require("modules.alerts")
 local cheatsheetModule = require("modules.cheatsheet")
 local hyperModule = require("modules.hyper")
 
-hs.window.animationDuration = 0
+hs.window.animationDuration = 0.1
 
 -- Cap how long a single Accessibility request may block Hammerspoon. The macOS
 -- default is ~6s, so one busy app (e.g. Outlook mid-sync) could stall every
