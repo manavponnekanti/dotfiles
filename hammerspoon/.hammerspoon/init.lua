@@ -39,7 +39,7 @@ end
 -- Command modules claim their keys before apps derives its assignable keys.
 -- Add future shortcut-owning modules above the apps entry for automatic
 -- exclusion.
-feature("windows", function(m) m.setup(hyper) end)
+feature("windows", function(m) m.setup(hyper, alerts) end)
 feature("airpods", function(m) m.setup(hyper, alerts) end)
 feature("deeplinks", function(m) m.setup(hyper) end)
 feature("flowmodoro", function(m) m.setup(hyper, alerts, ui) end)
